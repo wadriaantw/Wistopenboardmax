@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Spinner</title>
+<style>
+  html,body { margin:0; padding:0; width:100%; height:100%; background:#fff; font-family: system-ui, sans-serif; user-select:none; }
+  #root { display:flex; flex-direction:column; height:100%; }
+  #controls { padding:6px 8px; background:#f4f4f4; display:flex; gap:6px; font-size:13px; align-items:center; }
+  #wrap { flex:1; position:relative; display:flex; align-items:center; justify-content:center; }
+  canvas { max-width:100%; max-height:100%; }
+  button { padding:6px 14px; font-size:13px; cursor:pointer; border-radius:4px; border:1px solid #aaa; background:#fff; }
+  button.go { background:#2a7; color:#fff; border-color:#2a7; }
+  #result { font-size:20px; font-weight:bold; color:crimson; margin-left:auto; padding-right:10px; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="controls">
+    <label>Sections <input id="n" type="number" value="6" min="2" max="20" style="width:50px;"></label>
+    <button id="spin" class="go">Spin</button>
+    <span id="result"></span>
+  </div>
+  <div id="wrap"><canvas id="c"></canvas></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('c'); const ctx = cv.getContext('2d');
+let angle = 0;
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const wrap = $('wrap');
+  const sz = Math.max(120, Math.min(wrap.clientWidth, wrap.clientHeight) - 8);
+  cv.style.width = sz + 'px'; cv.style.height = sz + 'px';
+  cv.width = sz * dpr; cv.height = sz * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+function draw() {
+  const n = Math.max(2, Math.min(20, +$('n').value));
+  const W = cv.clientWidth || 400, H = cv.clientHeight || 400;
+  const cx = W/2, cy = H/2; const R = Math.min(W,H)/2 - 20;
+  ctx.clearRect(0,0,W,H);
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(angle);
+  for (let i = 0; i < n; i++) {
+    const a0 = (i/n) * Math.PI * 2 - Math.PI/2;
+    const a1 = ((i+1)/n) * Math.PI * 2 - Math.PI/2;
+    const hue = (i * 360 / n) % 360;
+    ctx.fillStyle = `hsl(${hue}, 70%, 60%)`;
+    ctx.beginPath(); ctx.moveTo(0,0); ctx.arc(0,0,R,a0,a1); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.stroke();
+    ctx.save(); ctx.rotate((a0+a1)/2); ctx.fillStyle='#fff'; ctx.font='bold 20px sans-serif';
+    ctx.textAlign='right'; ctx.textBaseline='middle';
+    ctx.fillText(String(i+1), R-10, 0);
+    ctx.restore();
+  }
+  ctx.restore();
+  // pointer
+  ctx.fillStyle='#222';
+  ctx.beginPath(); ctx.moveTo(cx, cy - R - 15); ctx.lineTo(cx-10, cy-R+5); ctx.lineTo(cx+10, cy-R+5); ctx.closePath(); ctx.fill();
+}
+$('n').addEventListener('input', draw);
+new ResizeObserver(resize).observe($('wrap'));
+window.addEventListener('resize', resize);
+window.addEventListener('load', resize);
+setTimeout(resize, 100);
+setTimeout(resize, 500);
+resize();
+$('spin').addEventListener('click', () => {
+  const spins = 5 + Math.random()*5;
+  const target = Math.random() * Math.PI * 2;
+  const finalAngle = angle + Math.PI*2*spins + target;
+  const startTime = performance.now(); const dur = 2800; const startAng = angle;
+  const delta = finalAngle - startAng;
+  function step(t) {
+    const p = Math.min(1, (t - startTime)/dur);
+    const eased = 1 - Math.pow(1 - p, 3);
+    angle = startAng + delta * eased;
+    draw();
+    if (p < 1) requestAnimationFrame(step);
+    else {
+      const n = Math.max(2, Math.min(20, +$('n').value));
+      const norm = (Math.PI*2 - (angle % (Math.PI*2)) + Math.PI*2) % (Math.PI*2);
+      const sector = Math.floor((norm / (Math.PI*2)) * n) + 1;
+      $('result').textContent = 'Got: ' + sector;
+    }
+  }
+  requestAnimationFrame(step);
+});
+</script>
+</body>
+</html>

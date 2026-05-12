@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Number Line</title>
+<style>
+  html,body { margin:0; padding:0; width:100%; height:100%; background:#fff; font-family: system-ui, sans-serif; }
+  #root { display:flex; flex-direction:column; height:100%; box-sizing:border-box; }
+  #controls { padding:6px 8px; background:#f4f4f4; display:flex; gap:8px; font-size:12px; align-items:center; flex-wrap:wrap; }
+  #controls input { width:50px; padding:2px 4px; }
+  canvas { flex:1; display:block; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="controls">
+    <label>Min <input id="mn" type="number" value="-10"></label>
+    <label>Max <input id="mx" type="number" value="10"></label>
+    <label>Step <input id="st" type="number" value="1" step="0.5"></label>
+    <label><input type="checkbox" id="frac">Fractions</label>
+    <label>Marker <input id="mkr" type="number" value="3" step="0.5"></label>
+  </div>
+  <canvas id="c"></canvas>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('c'); const ctx = cv.getContext('2d');
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  cv.width = r.width * dpr; cv.height = r.height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+function draw() {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  ctx.clearRect(0,0,W,H);
+  const mn = +$('mn').value, mx = +$('mx').value;
+  const st = Math.max(0.1, +$('st').value || 1);
+  const useFrac = $('frac').checked;
+  const marker = +$('mkr').value;
+  const pad = 30;
+  const y = H/2;
+  const X = v => pad + (v - mn) / (mx - mn) * (W - pad*2);
+  ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W-pad, y); ctx.stroke();
+  // arrows
+  ctx.fillStyle = '#333';
+  ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(pad+10, y-5); ctx.lineTo(pad+10, y+5); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(W-pad, y); ctx.lineTo(W-pad-10, y-5); ctx.lineTo(W-pad-10, y+5); ctx.closePath(); ctx.fill();
+  ctx.font = '13px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  function toFrac(v) {
+    if (Number.isInteger(v)) return String(v);
+    const d = 12; const n = Math.round(v*d);
+    const g = (a,b) => b ? g(b, a%b) : Math.abs(a);
+    const k = g(n, d);
+    return (n/k) + '/' + (d/k);
+  }
+  for (let v = mn; v <= mx + 1e-9; v += st) {
+    const xp = X(v);
+    const h = Math.abs(v - Math.round(v)) < 1e-9 ? 10 : 6;
+    ctx.beginPath(); ctx.moveTo(xp, y-h); ctx.lineTo(xp, y+h); ctx.stroke();
+    const lbl = useFrac ? toFrac(+v.toFixed(3)) : String(+v.toFixed(3));
+    ctx.fillText(lbl, xp, y+12);
+  }
+  // marker
+  const mxp = X(marker);
+  ctx.fillStyle = 'crimson';
+  ctx.beginPath(); ctx.arc(mxp, y, 7, 0, Math.PI*2); ctx.fill();
+}
+['mn','mx','st','frac','mkr'].forEach(id => $(id).addEventListener('input', draw));
+new ResizeObserver(resize).observe(document.body);
+window.addEventListener('resize', resize);
+window.addEventListener('load', resize);
+let _lw=0,_lh=0;
+setInterval(() => {
+  const r = cv.getBoundingClientRect();
+  if (r.width !== _lw || r.height !== _lh) { _lw=r.width; _lh=r.height; resize(); }
+}, 250);
+resize();
+setTimeout(resize, 100);
+setTimeout(resize, 500);
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets"
+        xmlns:ub="http://uniboard.mnemis.com/widgets"
+        id="http://uniboard.mnemis.com/widgets/wolframalpha"
+        version="1.0"
+        width="800"
+        height="600"
+        ub:resizable="true">
+  <name>Wolfram Alpha</name>
+  <content src="index.html"/>
+</widget>

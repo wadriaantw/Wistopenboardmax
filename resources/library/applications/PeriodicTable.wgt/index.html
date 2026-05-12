@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Periodic Table</title>
+<style>
+  :root {
+    --gap: 2px;
+    --cell-border: rgba(0,0,0,0.25);
+    --text: #111;
+    --bg: #fafafa;
+    --panel-bg: #ffffff;
+    --panel-border: #bbb;
+    --accent: #2a82da;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0; width: 100%; height: 100%;
+    background: var(--bg); color: var(--text);
+    font-family: "Segoe UI", Arial, sans-serif;
+    overflow: auto;
+  }
+  #app { padding: 8px; }
+  header {
+    display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  .controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .controls label { font-size: 12px; color: #555; }
+  select, input[type=text] {
+    font-size: 12px; padding: 3px 6px;
+    border: 1px solid #999; border-radius: 3px;
+    background: white; color: var(--text);
+  }
+  input[type=text] { width: 140px; }
+  button {
+    font-size: 12px; padding: 3px 8px;
+    border: 1px solid #999; border-radius: 3px;
+    background: white; color: var(--text); cursor: pointer;
+  }
+  button:hover { background: #eef; }
+
+  #table {
+    display: grid;
+    grid-template-columns: repeat(18, minmax(36px, 1fr));
+    grid-auto-rows: minmax(44px, auto);
+    gap: var(--gap);
+  }
+  .el {
+    border: 1px solid var(--cell-border);
+    padding: 2px 3px;
+    cursor: pointer;
+    user-select: none;
+    display: flex; flex-direction: column; justify-content: space-between;
+    line-height: 1.05;
+    min-width: 0;
+    transition: transform 80ms ease, outline-color 80ms ease, opacity 100ms ease;
+    position: relative;
+  }
+  .el:hover {
+    outline: 2px solid var(--accent);
+    transform: scale(1.08);
+    z-index: 5;
+  }
+  .el.selected {
+    outline: 3px solid #d33;
+    z-index: 4;
+  }
+  .el.dim { opacity: 0.18; }
+  .el.row-hi, .el.col-hi {
+    outline: 2px solid rgba(42,130,218,0.55);
+  }
+  .el .num { font-size: 9px; opacity: 0.75; }
+  .el .sym { font-size: 16px; font-weight: 700; text-align: center; }
+  .el .name { font-size: 8px; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .el .mass { font-size: 8px; text-align: center; opacity: 0.7; }
+
+  /* Category palette (mode = category) */
+  [data-cat="alkali"]      { background: #ff8a8a; }
+  [data-cat="alkaline"]    { background: #ffc28a; }
+  [data-cat="transition"]  { background: #ffe066; }
+  [data-cat="post"]        { background: #c4e07a; }
+  [data-cat="metalloid"]   { background: #8ad6c2; }
+  [data-cat="nonmetal"]    { background: #8acaff; }
+  [data-cat="halogen"]     { background: #c8a3ff; }
+  [data-cat="noble"]       { background: #ff96d6; }
+  [data-cat="lanthanide"]  { background: #ffb3c1; }
+  [data-cat="actinide"]    { background: #ffd1a3; }
+  [data-cat="unknown"]     { background: #d0d0d0; }
+
+  /* Phase mode overrides */
+  body[data-mode="phase"] [data-phase="solid"]  { background: #cfd8dc; }
+  body[data-mode="phase"] [data-phase="liquid"] { background: #80d8ff; }
+  body[data-mode="phase"] [data-phase="gas"]    { background: #ffe082; }
+  body[data-mode="phase"] [data-phase="unknown"]{ background: #eee; }
+
+  /* Heatmap modes use inline styles via JS */
+
+  /* Lanthanide/Actinide markers */
+  .marker {
+    border: 1px dashed #999;
+    background: #f0f0f0;
+    font-size: 10px;
+    align-items: center; justify-content: center; display: flex;
+    cursor: default;
+  }
+  .marker:hover { outline: none; transform: none; }
+
+  #panels { display: flex; gap: 10px; margin-top: 10px; align-items: flex-start; flex-wrap: wrap; }
+  #info {
+    flex: 1 1 320px;
+    min-width: 280px;
+    border: 1px solid var(--panel-border);
+    background: var(--panel-bg);
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+  #info .head {
+    display: flex; align-items: baseline; gap: 8px;
+    border-bottom: 1px solid #ddd; padding-bottom: 6px; margin-bottom: 6px;
+  }
+  #info .big-sym { font-size: 28px; font-weight: 700; }
+  #info .big-name { font-size: 16px; font-weight: 600; }
+  #info .big-z { font-size: 12px; color: #666; margin-left: auto; }
+  #info dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 0; }
+  #info dt { color: #555; }
+  #info dd { margin: 0; }
+
+  #legend {
+    flex: 0 1 360px;
+    border: 1px solid var(--panel-border);
+    background: var(--panel-bg);
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+  #legend h3 { font-size: 12px; margin: 0 0 6px 0; }
+  .lg-row { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .lg { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; }
+  .lg .sw {
+    width: 14px; height: 14px;
+    border: 1px solid #888; display: inline-block;
+  }
+  .lg.off { opacity: 0.4; }
+
+  .heat-bar {
+    margin-top: 8px;
+    display: flex; align-items: center; gap: 6px; font-size: 10px;
+  }
+  .heat-grad {
+    flex: 1; height: 10px;
+    background: linear-gradient(to right, #2962ff, #00bfa5, #ffd600, #ff6d00, #d50000);
+    border: 1px solid #888;
+  }
+</style>
+</head>
+<body data-mode="category">
+<div id="app">
+  <header>
+    <h1>Periodic Table of the Elements</h1>
+    <div class="controls">
+      <label>Color by:
+        <select id="mode">
+          <option value="category">Category</option>
+          <option value="phase">State at 25 °C</option>
+          <option value="electroneg">Electronegativity</option>
+          <option value="melt">Melting point</option>
+          <option value="boil">Boiling point</option>
+        </select>
+      </label>
+      <label>Search:
+        <input id="search" type="text" placeholder="name, symbol, or Z" autocomplete="off">
+      </label>
+      <button id="clear">Clear</button>
+    </div>
+  </header>
+
+  <div id="table"></div>
+
+  <div id="panels">
+    <div id="info"></div>
+    <div id="legend"></div>
+  </div>
+</div>
+
+<script>
+// Each entry: [Z, symbol, name, mass, group, period, category, phase, electroneg, meltK, boilK, density(g/cm3), config, year, discovery]
+// phase: solid/liquid/gas/unknown   electroneg: Pauling (null if N/A)
+// melt/boil in Kelvin (null = unknown)
+// year: discovery year (negative = BCE; 0 means "ancient/prehistoric")
+const E = [
+ [1,"H","Hydrogen","1.008",1,1,"nonmetal","gas",2.20,13.99,20.271,0.0000899,"1s¹",1766,"Cavendish"],
+ [2,"He","Helium","4.0026",18,1,"noble","gas",null,0.95,4.222,0.0001785,"1s²",1868,"Janssen / Lockyer"],
+ [3,"Li","Lithium","6.94",1,2,"alkali","solid",0.98,453.65,1603,0.534,"[He] 2s¹",1817,"Arfvedson"],
+ [4,"Be","Beryllium","9.0122",2,2,"alkaline","solid",1.57,1560,2742,1.85,"[He] 2s²",1798,"Vauquelin"],
+ [5,"B","Boron","10.81",13,2,"metalloid","solid",2.04,2349,4200,2.34,"[He] 2s² 2p¹",1808,"Davy / Gay-Lussac"],
+ [6,"C","Carbon","12.011",14,2,"nonmetal","solid",2.55,3823,4098,2.267,"[He] 2s² 2p²",0,"Prehistoric"],
+ [7,"N","Nitrogen","14.007",15,2,"nonmetal","gas",3.04,63.15,77.355,0.001251,"[He] 2s² 2p³",1772,"Rutherford"],
+ [8,"O","Oxygen","15.999",16,2,"nonmetal","gas",3.44,54.36,90.188,0.001429,"[He] 2s² 2p⁴",1774,"Priestley / Scheele"],
+ [9,"F","Fluorine","18.998",17,2,"halogen","gas",3.98,53.48,85.03,0.001696,"[He] 2s² 2p⁵",1886,"Moissan"],
+ [10,"Ne","Neon","20.180",18,2,"noble","gas",null,24.56,27.104,0.0009,"[He] 2s² 2p⁶",1898,"Ramsay & Travers"],
+ [11,"Na","Sodium","22.990",1,3,"alkali","solid",0.93,370.944,1156.090,0.971,"[Ne] 3s¹",1807,"Davy"],
+ [12,"Mg","Magnesium","24.305",2,3,"alkaline","solid",1.31,923,1363,1.738,"[Ne] 3s²",1755,"Black"],
+ [13,"Al","Aluminium","26.982",13,3,"post","solid",1.61,933.47,2743,2.70,"[Ne] 3s² 3p¹",1825,"Ørsted"],
+ [14,"Si","Silicon","28.085",14,3,"metalloid","solid",1.90,1687,3538,2.3296,"[Ne] 3s² 3p²",1824,"Berzelius"],
+ [15,"P","Phosphorus","30.974",15,3,"nonmetal","solid",2.19,317.30,553.65,1.823,"[Ne] 3s² 3p³",1669,"Brand"],
+ [16,"S","Sulfur","32.06",16,3,"nonmetal","solid",2.58,388.36,717.8,2.07,"[Ne] 3s² 3p⁴",0,"Prehistoric"],
+ [17,"Cl","Chlorine","35.45",17,3,"halogen","gas",3.16,171.6,239.11,0.003214,"[Ne] 3s² 3p⁵",1774,"Scheele"],
+ [18,"Ar","Argon","39.948",18,3,"noble","gas",null,83.81,87.302,0.001784,"[Ne] 3s² 3p⁶",1894,"Rayleigh & Ramsay"],
+ [19,"K","Potassium","39.098",1,4,"alkali","solid",0.82,336.7,1032,0.862,"[Ar] 4s¹",1807,"Davy"],
+ [20,"Ca","Calcium","40.078",2,4,"alkaline","solid",1.00,1115,1757,1.54,"[Ar] 4s²",1808,"Davy"],
+ [21,"Sc","Scandium","44.956",3,4,"transition","solid",1.36,1814,3109,2.989,"[Ar] 3d¹ 4s²",1879,"Nilson"],
+ [22,"Ti","Titanium","47.867",4,4,"transition","solid",1.54,1941,3560,4.506,"[Ar] 3d² 4s²",1791,"Gregor"],
+ [23,"V","Vanadium","50.942",5,4,"transition","solid",1.63,2183,3680,6.0,"[Ar] 3d³ 4s²",1801,"del Río"],
+ [24,"Cr","Chromium","51.996",6,4,"transition","solid",1.66,2180,2944,7.15,"[Ar] 3d⁵ 4s¹",1797,"Vauquelin"],
+ [25,"Mn","Manganese","54.938",7,4,"transition","solid",1.55,1519,2334,7.21,"[Ar] 3d⁵ 4s²",1774,"Gahn"],
+ [26,"Fe","Iron","55.845",8,4,"transition","solid",1.83,1811,3134,7.874,"[Ar] 3d⁶ 4s²",0,"Prehistoric"],
+ [27,"Co","Cobalt","58.933",9,4,"transition","solid",1.88,1768,3200,8.90,"[Ar] 3d⁷ 4s²",1735,"Brandt"],
+ [28,"Ni","Nickel","58.693",10,4,"transition","solid",1.91,1728,3003,8.908,"[Ar] 3d⁸ 4s²",1751,"Cronstedt"],
+ [29,"Cu","Copper","63.546",11,4,"transition","solid",1.90,1357.77,2835,8.96,"[Ar] 3d¹⁰ 4s¹",0,"Prehistoric"],
+ [30,"Zn","Zinc","65.38",12,4,"transition","solid",1.65,692.68,1180,7.14,"[Ar] 3d¹⁰ 4s²",0,"Ancient (India)"],
+ [31,"Ga","Gallium","69.723",13,4,"post","solid",1.81,302.9146,2673,5.91,"[Ar] 3d¹⁰ 4s² 4p¹",1875,"Boisbaudran"],
+ [32,"Ge","Germanium","72.630",14,4,"metalloid","solid",2.01,1211.40,3106,5.323,"[Ar] 3d¹⁰ 4s² 4p²",1886,"Winkler"],
+ [33,"As","Arsenic","74.922",15,4,"metalloid","solid",2.18,887,887,5.727,"[Ar] 3d¹⁰ 4s² 4p³",1250,"Albertus Magnus"],
+ [34,"Se","Selenium","78.971",16,4,"nonmetal","solid",2.55,494,958,4.81,"[Ar] 3d¹⁰ 4s² 4p⁴",1817,"Berzelius"],
+ [35,"Br","Bromine","79.904",17,4,"halogen","liquid",2.96,265.8,332.0,3.1028,"[Ar] 3d¹⁰ 4s² 4p⁵",1825,"Balard / Löwig"],
+ [36,"Kr","Krypton","83.798",18,4,"noble","gas",3.00,115.78,119.93,0.003749,"[Ar] 3d¹⁰ 4s² 4p⁶",1898,"Ramsay & Travers"],
+ [37,"Rb","Rubidium","85.468",1,5,"alkali","solid",0.82,312.45,961,1.532,"[Kr] 5s¹",1861,"Bunsen & Kirchhoff"],
+ [38,"Sr","Strontium","87.62",2,5,"alkaline","solid",0.95,1050,1655,2.64,"[Kr] 5s²",1790,"Crawford"],
+ [39,"Y","Yttrium","88.906",3,5,"transition","solid",1.22,1799,3203,4.472,"[Kr] 4d¹ 5s²",1794,"Gadolin"],
+ [40,"Zr","Zirconium","91.224",4,5,"transition","solid",1.33,2128,4650,6.52,"[Kr] 4d² 5s²",1789,"Klaproth"],
+ [41,"Nb","Niobium","92.906",5,5,"transition","solid",1.6,2750,5017,8.57,"[Kr] 4d⁴ 5s¹",1801,"Hatchett"],
+ [42,"Mo","Molybdenum","95.95",6,5,"transition","solid",2.16,2896,4912,10.28,"[Kr] 4d⁵ 5s¹",1778,"Scheele"],
+ [43,"Tc","Technetium","(98)",7,5,"transition","solid",1.9,2430,4538,11,"[Kr] 4d⁵ 5s²",1937,"Perrier & Segrè"],
+ [44,"Ru","Ruthenium","101.07",8,5,"transition","solid",2.2,2607,4423,12.45,"[Kr] 4d⁷ 5s¹",1844,"Klaus"],
+ [45,"Rh","Rhodium","102.91",9,5,"transition","solid",2.28,2237,3968,12.41,"[Kr] 4d⁸ 5s¹",1803,"Wollaston"],
+ [46,"Pd","Palladium","106.42",10,5,"transition","solid",2.20,1828.05,3236,12.023,"[Kr] 4d¹⁰",1803,"Wollaston"],
+ [47,"Ag","Silver","107.87",11,5,"transition","solid",1.93,1234.93,2435,10.49,"[Kr] 4d¹⁰ 5s¹",0,"Prehistoric"],
+ [48,"Cd","Cadmium","112.41",12,5,"transition","solid",1.69,594.22,1040,8.65,"[Kr] 4d¹⁰ 5s²",1817,"Stromeyer"],
+ [49,"In","Indium","114.82",13,5,"post","solid",1.78,429.7485,2345,7.31,"[Kr] 4d¹⁰ 5s² 5p¹",1863,"Reich & Richter"],
+ [50,"Sn","Tin","118.71",14,5,"post","solid",1.96,505.08,2875,7.265,"[Kr] 4d¹⁰ 5s² 5p²",0,"Prehistoric"],
+ [51,"Sb","Antimony","121.76",15,5,"metalloid","solid",2.05,903.78,1908,6.697,"[Kr] 4d¹⁰ 5s² 5p³",0,"Ancient"],
+ [52,"Te","Tellurium","127.60",16,5,"metalloid","solid",2.1,722.66,1261,6.24,"[Kr] 4d¹⁰ 5s² 5p⁴",1782,"von Reichenstein"],
+ [53,"I","Iodine","126.90",17,5,"halogen","solid",2.66,386.85,457.4,4.933,"[Kr] 4d¹⁰ 5s² 5p⁵",1811,"Courtois"],
+ [54,"Xe","Xenon","131.29",18,5,"noble","gas",2.6,161.40,165.051,0.005894,"[Kr] 4d¹⁰ 5s² 5p⁶",1898,"Ramsay & Travers"],
+ [55,"Cs","Caesium","132.91",1,6,"alkali","solid",0.79,301.7,944,1.93,"[Xe] 6s¹",1860,"Bunsen & Kirchhoff"],
+ [56,"Ba","Barium","137.33",2,6,"alkaline","solid",0.89,1000,2118,3.51,"[Xe] 6s²",1772,"Scheele"],
+ [57,"La","Lanthanum","138.91",3,8,"lanthanide","solid",1.10,1193,3737,6.162,"[Xe] 5d¹ 6s²",1839,"Mosander"],
+ [58,"Ce","Cerium","140.12",4,8,"lanthanide","solid",1.12,1068,3716,6.770,"[Xe] 4f¹ 5d¹ 6s²",1803,"Berzelius / Klaproth"],
+ [59,"Pr","Praseodymium","140.91",5,8,"lanthanide","solid",1.13,1208,3793,6.77,"[Xe] 4f³ 6s²",1885,"von Welsbach"],
+ [60,"Nd","Neodymium","144.24",6,8,"lanthanide","solid",1.14,1297,3347,7.01,"[Xe] 4f⁴ 6s²",1885,"von Welsbach"],
+ [61,"Pm","Promethium","(145)",7,8,"lanthanide","solid",1.13,1315,3273,7.26,"[Xe] 4f⁵ 6s²",1945,"Marinsky / Glendenin / Coryell"],
+ [62,"Sm","Samarium","150.36",8,8,"lanthanide","solid",1.17,1345,2067,7.52,"[Xe] 4f⁶ 6s²",1879,"Boisbaudran"],
+ [63,"Eu","Europium","151.96",9,8,"lanthanide","solid",1.2,1099,1802,5.244,"[Xe] 4f⁷ 6s²",1901,"Demarçay"],
+ [64,"Gd","Gadolinium","157.25",10,8,"lanthanide","solid",1.20,1585,3546,7.90,"[Xe] 4f⁷ 5d¹ 6s²",1880,"de Marignac"],
+ [65,"Tb","Terbium","158.93",11,8,"lanthanide","solid",1.2,1629,3503,8.23,"[Xe] 4f⁹ 6s²",1843,"Mosander"],
+ [66,"Dy","Dysprosium","162.50",12,8,"lanthanide","solid",1.22,1680,2840,8.540,"[Xe] 4f¹⁰ 6s²",1886,"Boisbaudran"],
+ [67,"Ho","Holmium","164.93",13,8,"lanthanide","solid",1.23,1734,2993,8.79,"[Xe] 4f¹¹ 6s²",1878,"Cleve"],
+ [68,"Er","Erbium","167.26",14,8,"lanthanide","solid",1.24,1802,3141,9.066,"[Xe] 4f¹² 6s²",1843,"Mosander"],
+ [69,"Tm","Thulium","168.93",15,8,"lanthanide","solid",1.25,1818,2223,9.32,"[Xe] 4f¹³ 6s²",1879,"Cleve"],
+ [70,"Yb","Ytterbium","173.05",16,8,"lanthanide","solid",1.1,1097,1469,6.90,"[Xe] 4f¹⁴ 6s²",1878,"de Marignac"],
+ [71,"Lu","Lutetium","174.97",17,8,"lanthanide","solid",1.27,1925,3675,9.841,"[Xe] 4f¹⁴ 5d¹ 6s²",1907,"Urbain / von Welsbach"],
+ [72,"Hf","Hafnium","178.49",4,6,"transition","solid",1.3,2506,4876,13.31,"[Xe] 4f¹⁴ 5d² 6s²",1923,"Coster & de Hevesy"],
+ [73,"Ta","Tantalum","180.95",5,6,"transition","solid",1.5,3290,5731,16.69,"[Xe] 4f¹⁴ 5d³ 6s²",1802,"Ekeberg"],
+ [74,"W","Tungsten","183.84",6,6,"transition","solid",2.36,3695,6203,19.25,"[Xe] 4f¹⁴ 5d⁴ 6s²",1783,"de Elhuyar brothers"],
+ [75,"Re","Rhenium","186.21",7,6,"transition","solid",1.9,3459,5869,21.02,"[Xe] 4f¹⁴ 5d⁵ 6s²",1925,"Noddack / Tacke / Berg"],
+ [76,"Os","Osmium","190.23",8,6,"transition","solid",2.2,3306,5285,22.59,"[Xe] 4f¹⁴ 5d⁶ 6s²",1803,"Tennant"],
+ [77,"Ir","Iridium","192.22",9,6,"transition","solid",2.20,2719,4403,22.56,"[Xe] 4f¹⁴ 5d⁷ 6s²",1803,"Tennant"],
+ [78,"Pt","Platinum","195.08",10,6,"transition","solid",2.28,2041.4,4098,21.45,"[Xe] 4f¹⁴ 5d⁹ 6s¹",1735,"Ulloa"],
+ [79,"Au","Gold","196.97",11,6,"transition","solid",2.54,1337.33,3243,19.30,"[Xe] 4f¹⁴ 5d¹⁰ 6s¹",0,"Prehistoric"],
+ [80,"Hg","Mercury","200.59",12,6,"transition","liquid",2.00,234.321,629.88,13.534,"[Xe] 4f¹⁴ 5d¹⁰ 6s²",0,"Ancient"],
+ [81,"Tl","Thallium","204.38",13,6,"post","solid",1.62,577,1746,11.85,"[Xe] 4f¹⁴ 5d¹⁰ 6s² 6p¹",1861,"Crookes"],
+ [82,"Pb","Lead","207.2",14,6,"post","solid",1.87,600.61,2022,11.34,"[Xe] 4f¹⁴ 5d¹⁰ 6s² 6p²",0,"Prehistoric"],
+ [83,"Bi","Bismuth","208.98",15,6,"post","solid",2.02,544.7,1837,9.78,"[Xe] 4f¹⁴ 5d¹⁰ 6s² 6p³",1753,"Geoffroy the Younger"],
+ [84,"Po","Polonium","(209)",16,6,"post","solid",2.0,527,1235,9.196,"[Xe] 4f¹⁴ 5d¹⁰ 6s² 6p⁴",1898,"Curies"],
+ [85,"At","Astatine","(210)",17,6,"halogen","solid",2.2,575,610,6.35,"[Xe] 4f¹⁴ 5d¹⁰ 6s² 6p⁵",1940,"Corson / MacKenzie / Segrè"],
+ [86,"Rn","Radon","(222)",18,6,"noble","gas",2.2,202,211.5,0.00973,"[Xe] 4f¹⁴ 5d¹⁰ 6s² 6p⁶",1900,"Dorn"],
+ [87,"Fr","Francium","(223)",1,7,"alkali","solid",0.7,300,950,1.87,"[Rn] 7s¹",1939,"Perey"],
+ [88,"Ra","Radium","(226)",2,7,"alkaline","solid",0.9,973,2010,5.5,"[Rn] 7s²",1898,"Curies"],
+ [89,"Ac","Actinium","(227)",3,9,"actinide","solid",1.1,1500,3500,10,"[Rn] 6d¹ 7s²",1899,"Debierne"],
+ [90,"Th","Thorium","232.04",4,9,"actinide","solid",1.3,2023,5061,11.7,"[Rn] 6d² 7s²",1829,"Berzelius"],
+ [91,"Pa","Protactinium","231.04",5,9,"actinide","solid",1.5,1841,4300,15.37,"[Rn] 5f² 6d¹ 7s²",1913,"Fajans & Göhring"],
+ [92,"U","Uranium","238.03",6,9,"actinide","solid",1.38,1405.3,4404,19.1,"[Rn] 5f³ 6d¹ 7s²",1789,"Klaproth"],
+ [93,"Np","Neptunium","(237)",7,9,"actinide","solid",1.36,917,4273,20.45,"[Rn] 5f⁴ 6d¹ 7s²",1940,"McMillan & Abelson"],
+ [94,"Pu","Plutonium","(244)",8,9,"actinide","solid",1.28,912.5,3505,19.85,"[Rn] 5f⁶ 7s²",1940,"Seaborg et al."],
+ [95,"Am","Americium","(243)",9,9,"actinide","solid",1.13,1449,2880,12,"[Rn] 5f⁷ 7s²",1944,"Seaborg et al."],
+ [96,"Cm","Curium","(247)",10,9,"actinide","solid",1.28,1613,3383,13.51,"[Rn] 5f⁷ 6d¹ 7s²",1944,"Seaborg et al."],
+ [97,"Bk","Berkelium","(247)",11,9,"actinide","solid",1.3,1259,2900,14.78,"[Rn] 5f⁹ 7s²",1949,"Thompson / Ghiorso / Seaborg"],
+ [98,"Cf","Californium","(251)",12,9,"actinide","solid",1.3,1173,1743,15.1,"[Rn] 5f¹⁰ 7s²",1950,"Berkeley team"],
+ [99,"Es","Einsteinium","(252)",13,9,"actinide","solid",1.3,1133,1269,8.84,"[Rn] 5f¹¹ 7s²",1952,"Ghiorso et al."],
+ [100,"Fm","Fermium","(257)",14,9,"actinide","unknown",1.3,1800,null,null,"[Rn] 5f¹² 7s²",1952,"Ghiorso et al."],
+ [101,"Md","Mendelevium","(258)",15,9,"actinide","unknown",1.3,1100,null,null,"[Rn] 5f¹³ 7s²",1955,"Ghiorso et al."],
+ [102,"No","Nobelium","(259)",16,9,"actinide","unknown",1.3,1100,null,null,"[Rn] 5f¹⁴ 7s²",1958,"Berkeley / Dubna"],
+ [103,"Lr","Lawrencium","(266)",17,9,"actinide","unknown",1.3,1900,null,null,"[Rn] 5f¹⁴ 7s² 7p¹",1961,"Ghiorso et al."],
+ [104,"Rf","Rutherfordium","(267)",4,7,"transition","unknown",null,2400,null,23.2,"[Rn] 5f¹⁴ 6d² 7s²",1964,"Dubna / Berkeley"],
+ [105,"Db","Dubnium","(268)",5,7,"transition","unknown",null,null,null,29.3,"[Rn] 5f¹⁴ 6d³ 7s²",1968,"Dubna / Berkeley"],
+ [106,"Sg","Seaborgium","(269)",6,7,"transition","unknown",null,null,null,35.0,"[Rn] 5f¹⁴ 6d⁴ 7s²",1974,"Berkeley / Dubna"],
+ [107,"Bh","Bohrium","(270)",7,7,"transition","unknown",null,null,null,37.1,"[Rn] 5f¹⁴ 6d⁵ 7s²",1981,"GSI"],
+ [108,"Hs","Hassium","(277)",8,7,"transition","unknown",null,null,null,41,"[Rn] 5f¹⁴ 6d⁶ 7s²",1984,"GSI"],
+ [109,"Mt","Meitnerium","(278)",9,7,"unknown","unknown",null,null,null,37.4,"[Rn] 5f¹⁴ 6d⁷ 7s²",1982,"GSI"],
+ [110,"Ds","Darmstadtium","(281)",10,7,"unknown","unknown",null,null,null,34.8,"[Rn] 5f¹⁴ 6d⁸ 7s²",1994,"GSI"],
+ [111,"Rg","Roentgenium","(282)",11,7,"unknown","unknown",null,null,null,28.7,"[Rn] 5f¹⁴ 6d⁹ 7s²",1994,"GSI"],
+ [112,"Cn","Copernicium","(285)",12,7,"transition","unknown",null,null,283,23.7,"[Rn] 5f¹⁴ 6d¹⁰ 7s²",1996,"GSI"],
+ [113,"Nh","Nihonium","(286)",13,7,"unknown","unknown",null,700,1430,16,"[Rn] 5f¹⁴ 6d¹⁰ 7s² 7p¹",2003,"RIKEN / Dubna"],
+ [114,"Fl","Flerovium","(289)",14,7,"unknown","unknown",null,null,420,14,"[Rn] 5f¹⁴ 6d¹⁰ 7s² 7p²",1998,"Dubna"],
+ [115,"Mc","Moscovium","(290)",15,7,"unknown","unknown",null,700,1400,13.5,"[Rn] 5f¹⁴ 6d¹⁰ 7s² 7p³",2003,"Dubna / LLNL"],
+ [116,"Lv","Livermorium","(293)",16,7,"unknown","unknown",null,709,1085,12.9,"[Rn] 5f¹⁴ 6d¹⁰ 7s² 7p⁴",2000,"Dubna / LLNL"],
+ [117,"Ts","Tennessine","(294)",17,7,"halogen","unknown",null,723,883,7.2,"[Rn] 5f¹⁴ 6d¹⁰ 7s² 7p⁵",2010,"Dubna / Oak Ridge"],
+ [118,"Og","Oganesson","(294)",18,7,"noble","unknown",null,null,350,5.0,"[Rn] 5f¹⁴ 6d¹⁰ 7s² 7p⁶",2002,"Dubna / LLNL"],
+];
+
+const CAT_LABEL = {
+  alkali: "Alkali metal",
+  alkaline: "Alkaline earth metal",
+  transition: "Transition metal",
+  post: "Post-transition metal",
+  metalloid: "Metalloid",
+  nonmetal: "Reactive nonmetal",
+  halogen: "Halogen",
+  noble: "Noble gas",
+  lanthanide: "Lanthanide",
+  actinide: "Actinide",
+  unknown: "Unknown / predicted"
+};
+
+// Build a map by Z
+const byZ = {};
+E.forEach(e => byZ[e[0]] = e);
+
+const tableEl = document.getElementById("table");
+const infoEl  = document.getElementById("info");
+const legendEl = document.getElementById("legend");
+const modeEl  = document.getElementById("mode");
+const searchEl = document.getElementById("search");
+const clearBtn = document.getElementById("clear");
+
+let selected = null;     // current selected Z
+let activeCat = null;    // legend filter (category mode only)
+
+// Build cells
+const cellMap = {};
+function makeCell(e) {
+  const div = document.createElement("div");
+  div.className = "el";
+  div.dataset.z = e[0];
+  div.dataset.cat = e[6];
+  div.dataset.phase = e[7];
+  div.dataset.group = e[4];
+  div.dataset.period = e[5];
+  div.style.gridColumnStart = e[4];
+  div.style.gridRowStart = e[5];
+  div.innerHTML = `
+    <div class="num">${e[0]}</div>
+    <div class="sym">${e[1]}</div>
+    <div class="name">${e[2]}</div>
+    <div class="mass">${e[3]}</div>`;
+  div.title = `${e[1]} — ${e[2]} (Z=${e[0]})`;
+  div.addEventListener("click", () => selectEl(e[0]));
+  div.addEventListener("mouseenter", () => highlightRowCol(e[4], e[5], true));
+  div.addEventListener("mouseleave", () => highlightRowCol(e[4], e[5], false));
+  cellMap[e[0]] = div;
+  return div;
+}
+E.forEach(e => tableEl.appendChild(makeCell(e)));
+
+// Lanthanide / actinide markers in main grid
+function marker(group, period, label) {
+  const d = document.createElement("div");
+  d.className = "el marker";
+  d.style.gridColumnStart = group;
+  d.style.gridRowStart = period;
+  d.textContent = label;
+  tableEl.appendChild(d);
+}
+marker(3, 6, "57-71");
+marker(3, 7, "89-103");
+
+// --- Selection / info panel ---
+function selectEl(z) {
+  if (selected && cellMap[selected]) cellMap[selected].classList.remove("selected");
+  selected = z;
+  if (cellMap[z]) cellMap[z].classList.add("selected");
+  renderInfo(byZ[z]);
+}
+
+function fmtK(k) { return (k == null) ? "—" : `${k} K (${(k - 273.15).toFixed(1)} °C)`; }
+function fmtYear(y) {
+  if (y === 0) return "Prehistoric / ancient";
+  if (y < 0) return `${-y} BCE`;
+  return String(y);
+}
+
+function renderInfo(e) {
+  if (!e) {
+    infoEl.innerHTML = "<i>Click an element to see its properties.</i>";
+    return;
+  }
+  infoEl.innerHTML = `
+    <div class="head">
+      <div class="big-sym" style="color:#222">${e[1]}</div>
+      <div class="big-name">${e[2]}</div>
+      <div class="big-z">Z = ${e[0]}</div>
+    </div>
+    <dl>
+      <dt>Atomic mass</dt><dd>${e[3]} u</dd>
+      <dt>Group / Period</dt><dd>${e[4]}, ${e[5] === 8 ? '6 (Lanthanide)' : e[5] === 9 ? '7 (Actinide)' : e[5]}</dd>
+      <dt>Category</dt><dd>${CAT_LABEL[e[6]]}</dd>
+      <dt>Phase at 25 °C</dt><dd>${e[7]}</dd>
+      <dt>Electronegativity</dt><dd>${e[8] == null ? "—" : e[8] + " (Pauling)"}</dd>
+      <dt>Melting point</dt><dd>${fmtK(e[9])}</dd>
+      <dt>Boiling point</dt><dd>${fmtK(e[10])}</dd>
+      <dt>Density</dt><dd>${e[11] == null ? "—" : e[11] + " g/cm³"}</dd>
+      <dt>Electron config</dt><dd>${e[12]}</dd>
+      <dt>Discovered</dt><dd>${fmtYear(e[13])}${e[14] ? " — " + e[14] : ""}</dd>
+    </dl>`;
+}
+renderInfo(null);
+
+// --- Hover row/column highlight ---
+function highlightRowCol(group, period, on) {
+  document.querySelectorAll('.el').forEach(c => {
+    if (c.classList.contains('marker')) return;
+    if (on && (c.dataset.group === String(group) || c.dataset.period === String(period))) {
+      c.classList.add(c.dataset.group === String(group) ? "col-hi" : "row-hi");
+    } else {
+      c.classList.remove("col-hi", "row-hi");
+    }
+  });
+}
+
+// --- Color modes ---
+function applyMode(mode) {
+  document.body.dataset.mode = mode;
+  // Reset inline backgrounds first; CSS rules handle category and phase modes.
+  document.querySelectorAll('.el').forEach(c => { if (!c.classList.contains('marker')) c.style.background = ''; });
+  if (mode === "electroneg") heatmap(8, 0.7, 4.0);
+  else if (mode === "melt")   heatmap(9, 13, 3700);
+  else if (mode === "boil")   heatmap(10, 4, 6500);
+  updateLegend();
+}
+function heatmap(idx, lo, hi) {
+  const grad = ["#2962ff","#00bfa5","#ffd600","#ff6d00","#d50000"];
+  E.forEach(e => {
+    const v = e[idx];
+    const cell = cellMap[e[0]];
+    if (!cell) return;
+    if (v == null) { cell.style.background = "#dcdcdc"; return; }
+    const t = Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+    // Linear interpolate across the 5-stop gradient.
+    const seg = Math.min(grad.length - 2, Math.floor(t * (grad.length - 1)));
+    const localT = (t * (grad.length - 1)) - seg;
+    cell.style.background = mixHex(grad[seg], grad[seg + 1], localT);
+  });
+}
+function mixHex(a, b, t) {
+  const pa = [parseInt(a.slice(1,3),16), parseInt(a.slice(3,5),16), parseInt(a.slice(5,7),16)];
+  const pb = [parseInt(b.slice(1,3),16), parseInt(b.slice(3,5),16), parseInt(b.slice(5,7),16)];
+  const m = pa.map((v,i) => Math.round(v + (pb[i]-v)*t));
+  return `rgb(${m.join(',')})`;
+}
+
+// --- Legend ---
+function updateLegend() {
+  const mode = document.body.dataset.mode;
+  if (mode === "category") {
+    legendEl.innerHTML = "<h3>Categories (click to filter)</h3>";
+    const row = document.createElement("div");
+    row.className = "lg-row";
+    Object.keys(CAT_LABEL).forEach(k => {
+      const span = document.createElement("span");
+      span.className = "lg" + (activeCat && activeCat !== k ? " off" : "");
+      span.innerHTML = `<span class="sw" data-cat="${k}"></span>${CAT_LABEL[k]}`;
+      span.addEventListener("click", () => {
+        activeCat = (activeCat === k) ? null : k;
+        applyFilter();
+        updateLegend();
+      });
+      row.appendChild(span);
+    });
+    legendEl.appendChild(row);
+  } else if (mode === "phase") {
+    legendEl.innerHTML = "<h3>State at 25 °C</h3>";
+    const row = document.createElement("div");
+    row.className = "lg-row";
+    [["solid","Solid","#cfd8dc"],["liquid","Liquid","#80d8ff"],["gas","Gas","#ffe082"],["unknown","Unknown","#eee"]].forEach(([k,l,c]) => {
+      const s = document.createElement("span");
+      s.className = "lg";
+      s.innerHTML = `<span class="sw" style="background:${c}"></span>${l}`;
+      row.appendChild(s);
+    });
+    legendEl.appendChild(row);
+  } else {
+    const titles = { electroneg: "Electronegativity (Pauling, 0.7–4.0)",
+                     melt: "Melting point (13 K – 3700 K)",
+                     boil: "Boiling point (4 K – 6500 K)" };
+    legendEl.innerHTML = `<h3>${titles[mode]}</h3>`;
+    const bar = document.createElement("div");
+    bar.className = "heat-bar";
+    bar.innerHTML = `<span>low</span><span class="heat-grad"></span><span>high</span>`;
+    legendEl.appendChild(bar);
+  }
+}
+
+// --- Filter (legend click in category mode + search) ---
+function applyFilter() {
+  const q = searchEl.value.trim().toLowerCase();
+  E.forEach(e => {
+    const cell = cellMap[e[0]];
+    let show = true;
+    if (activeCat && document.body.dataset.mode === "category") {
+      if (e[6] !== activeCat) show = false;
+    }
+    if (q.length) {
+      const hay = `${e[0]} ${e[1].toLowerCase()} ${e[2].toLowerCase()}`;
+      if (!hay.includes(q)) show = false;
+    }
+    cell.classList.toggle("dim", !show);
+  });
+}
+
+// --- Wire controls ---
+modeEl.addEventListener("change", () => {
+  if (modeEl.value !== "category") activeCat = null;
+  applyMode(modeEl.value);
+  applyFilter();
+});
+searchEl.addEventListener("input", applyFilter);
+clearBtn.addEventListener("click", () => {
+  searchEl.value = "";
+  activeCat = null;
+  selectEl(null);
+  applyFilter();
+  updateLegend();
+});
+
+// Init
+applyMode("category");
+</script>
+</body>
+</html>

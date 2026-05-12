@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Scientific Calculator</title>
+<style>
+  html,body { margin:0; padding:0; width:100%; height:100%; background:#222; font-family: system-ui, sans-serif; }
+  #root { display:flex; flex-direction:column; height:100%; box-sizing:border-box; padding:6px; gap:5px; }
+  #display {
+    background:#111; color:#fff; border-radius:5px; padding:8px;
+    display:flex; flex-direction:column; min-height:60px; box-sizing:border-box;
+  }
+  #expr  { font-family: 'Consolas', monospace; font-size:13px; opacity:.7; min-height:16px; word-break:break-all; }
+  #result{ font-family: 'Consolas', monospace; font-size:22px; text-align:right; margin-top:auto; word-break:break-all; }
+  #modeRow { display:flex; gap:4px; align-items:center; font-size:11px; color:#bbb; padding:0 2px; }
+  #modeRow label { display:flex; align-items:center; gap:3px; cursor:pointer; }
+  #pad { display:grid; grid-template-columns: repeat(5, 1fr); gap:4px; flex:1; }
+  button {
+    border:none; border-radius:4px; font-size:13px; cursor:pointer;
+    background:#444; color:#eee; font-family: 'Consolas', monospace;
+    padding:0; min-height:0;
+  }
+  button:active { transform:translateY(1px); }
+  button.fn  { background:#385a78; color:#fff; font-size:11px; }
+  button.op  { background:#c08030; color:#fff; }
+  button.eq  { background:#2a7; color:#fff; }
+  button.clr { background:#a44; color:#fff; }
+  button.span2 { grid-column: span 2; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="display">
+    <div id="expr"></div>
+    <div id="result">0</div>
+  </div>
+  <div id="modeRow">
+    <label><input type="radio" name="ang" value="rad" checked>Rad</label>
+    <label><input type="radio" name="ang" value="deg">Deg</label>
+    <span style="margin-left:auto;color:#888">M: <span id="memVal">0</span></span>
+  </div>
+  <div id="pad"></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+let expr = '';
+let lastResult = 0;
+let memory = 0;
+
+const buttons = [
+  // row 1
+  ['sin','sin(','fn'], ['cos','cos(','fn'], ['tan','tan(','fn'], ['π','PI','fn'], ['e','E','fn'],
+  // row 2
+  ['asin','asin(','fn'], ['acos','acos(','fn'], ['atan','atan(','fn'], ['xʸ','^','fn'], ['x²','^2','fn'],
+  // row 3
+  ['log','log10(','fn'], ['ln','log(','fn'], ['√','sqrt(','fn'], ['10ˣ','10^','fn'], ['eˣ','exp(','fn'],
+  // row 4
+  ['1/x','1/(','fn'], ['|x|','abs(','fn'], ['n!','!','fn'], ['(','(','fn'], [')',')','fn'],
+  // row 5
+  ['MC','MC','clr'], ['MR','MR','fn'], ['M+','M+','fn'], ['M−','M-','fn'], ['Ans','ANS','fn'],
+  // row 6
+  ['C','C','clr'], ['⌫','BS','clr'], ['÷','/','op'], ['×','*','op'], ['Ins','INS','eq'],
+  // row 7
+  ['7','7',''], ['8','8',''], ['9','9',''], ['−','-','op'], ['+','+','op'],
+  // row 8
+  ['4','4',''], ['5','5',''], ['6','6',''], ['±','+/-','fn'], ['EXP','e','fn'],
+  // row 9
+  ['1','1',''], ['2','2',''], ['3','3',''], ['.','.',''], ['=','=','eq'],
+  // row 10
+  ['0','0','span2'], [],[], [' ',' ',''], [' ',' ','']
+];
+
+const pad = $('pad');
+buttons.forEach(b => {
+  if (!b || !b.length) {
+    const f = document.createElement('div'); pad.appendChild(f); return;
+  }
+  const [label, val, cls] = b;
+  if (label === ' ') return; // filler placeholder
+  const btn = document.createElement('button');
+  btn.textContent = label;
+  if (cls) cls.split(' ').forEach(c => c && btn.classList.add(c));
+  btn.addEventListener('click', () => handle(val));
+  pad.appendChild(btn);
+});
+
+function setExpr(s) { expr = s; $('expr').textContent = expr; }
+function setResult(v) {
+  let s;
+  if (typeof v === 'number') {
+    if (!isFinite(v)) s = 'Error';
+    else s = (Math.abs(v) > 1e12 || (v !== 0 && Math.abs(v) < 1e-6)) ? v.toExponential(8) : String(+v.toPrecision(12));
+  } else s = String(v);
+  $('result').textContent = s;
+}
+function setMem(v) { memory = v; $('memVal').textContent = String(+memory.toPrecision(8)); }
+
+function angleMode() { return document.querySelector('input[name="ang"]:checked').value; }
+
+// Convert user expression to JS expression with Math fns; honor Rad/Deg.
+function toJs(s) {
+  let js = s;
+  // factorial: n! → fact(n) (only handles trailing operand)
+  js = js.replace(/(\d+(\.\d+)?|\)|[A-Za-z_]+)!/g, 'fact($1)');
+  // ^ → **
+  js = js.replace(/\^/g, '**');
+  // implicit *: 2x, 2(  )(  )2
+  js = js.replace(/(\d)([a-zA-Z(])/g, '$1*$2');
+  js = js.replace(/\)(\d|[a-zA-Z(])/g, ')*$1');
+  // Trig wrappers — convert deg to rad if needed
+  if (angleMode() === 'deg') {
+    js = js.replace(/\b(sin|cos|tan)\(/g, '$1((Math.PI/180)*');
+    // asin/acos/atan: result is rad → convert to deg
+    js = js.replace(/\b(asin|acos|atan)\(/g, '(180/Math.PI)*$1(');
+  }
+  return js;
+}
+
+function compute(s) {
+  if (!s) return '';
+  const js = toJs(s);
+  try {
+    const fn = new Function('ANS', 'M', 'fact', 'with(Math){return ' + js + ';}');
+    const factFn = (n) => { n = +n; if (n < 0 || !Number.isFinite(n)) return NaN; if (n > 170) return Infinity; let r=1; for (let i=2;i<=Math.floor(n);i++) r*=i; return r; };
+    return fn(lastResult, memory, factFn);
+  } catch (e) {
+    return NaN;
+  }
+}
+
+function livePreview() {
+  if (!expr) { setResult(lastResult || 0); return; }
+  const v = compute(expr);
+  if (typeof v === 'number' && isFinite(v)) setResult(v);
+  // Don't show "Error" while still typing
+}
+
+function evaluate() {
+  const v = compute(expr);
+  if (typeof v === 'number' && isFinite(v)) {
+    lastResult = v;
+    setResult(v);
+    setExpr('');
+  } else {
+    setResult('Error');
+  }
+}
+
+function handle(v) {
+  switch (v) {
+    case 'C': setExpr(''); setResult(0); lastResult = 0; return;
+    case 'BS': setExpr(expr.slice(0, -1)); livePreview(); return;
+    case '=': evaluate(); return;
+    case 'INS': {
+      const txt = ($('result').textContent || '').replace(/[^0-9eE+\-.]/g,'') || '0';
+      if (window.sankore && window.sankore.addObject) {
+        // Insert as small text label via a tiny PNG snapshot of the result.
+        const cv = document.createElement('canvas');
+        cv.width = 320; cv.height = 80;
+        const c = cv.getContext('2d');
+        c.fillStyle='#fff'; c.fillRect(0,0,cv.width,cv.height);
+        c.fillStyle='#000'; c.font='40px sans-serif'; c.textBaseline='middle'; c.textAlign='center';
+        c.fillText(txt, cv.width/2, cv.height/2);
+        window.sankore.addObject(cv.toDataURL('image/png'), 0, 0, 0, 0, false);
+      }
+      return;
+    }
+    case 'ANS': setExpr(expr + 'ANS'); livePreview(); return;
+    case 'MC': setMem(0); return;
+    case 'MR': setExpr(expr + 'M'); livePreview(); return;
+    case 'M+': setMem(memory + (+$('result').textContent || 0)); return;
+    case 'M-': setMem(memory - (+$('result').textContent || 0)); return;
+    case '+/-': {
+      // Negate the last numeric token in expr
+      const m = expr.match(/(.*?)(-?\d*\.?\d+)$/);
+      if (m) setExpr(m[1] + (m[2].startsWith('-') ? m[2].slice(1) : '-' + m[2]));
+      else setExpr('-(' + expr + ')');
+      livePreview();
+      return;
+    }
+    default:
+      setExpr(expr + v);
+      livePreview();
+  }
+}
+
+document.querySelectorAll('input[name="ang"]').forEach(r => r.addEventListener('change', livePreview));
+
+// Keyboard support
+document.addEventListener('keydown', (e) => {
+  const k = e.key;
+  if (/^[0-9.]$/.test(k)) handle(k);
+  else if (k === '+' || k === '-' || k === '*' || k === '/') handle(k);
+  else if (k === '(' || k === ')') handle(k);
+  else if (k === '^') handle('^');
+  else if (k === 'Enter' || k === '=') { e.preventDefault(); handle('='); }
+  else if (k === 'Backspace') handle('BS');
+  else if (k === 'Escape') handle('C');
+});
+
+setResult(0);
+</script>
+</body>
+</html>

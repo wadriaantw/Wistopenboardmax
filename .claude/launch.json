@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "yt-widget",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8765", "--directory", "C:/openboard-fork/resources/library/applications/YouTube.wgt"],
+      "port": 8765
+    }
+  ]
+}

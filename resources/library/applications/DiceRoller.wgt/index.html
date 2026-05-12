@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Dice</title>
+<style>
+  html,body { margin:0; padding:0; width:100%; height:100%; background:#fafafa; font-family: system-ui, sans-serif; user-select:none; }
+  #root { display:flex; flex-direction:column; height:100%; box-sizing:border-box; padding:6px; gap:5px; }
+  #controls { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:11px; background:#fff; border:1px solid #ddd; border-radius:4px; padding:4px 6px; }
+  #controls input[type="number"] { width:50px; padding:1px 3px; font-size:11px; }
+  #controls select { font-size:11px; padding:1px; }
+  button { padding:3px 9px; font-size:11px; border:1px solid #ccc; background:#fff; border-radius:3px; cursor:pointer; }
+  button:hover { background:#eee; }
+  button.primary { background:#2a7; color:#fff; border-color:#2a7; font-weight:bold; padding:3px 14px; }
+  button.primary:hover { background:#3b8; }
+  #dice { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; padding:6px; background:#fff; border:1px solid #ddd; border-radius:4px; min-height:60px; align-items:center; }
+  .die { width:42px; height:42px; background:#fff; border:1.5px solid #333; border-radius:7px; display:grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); padding:5px; box-sizing:border-box; box-shadow: 0 1px 2px rgba(0,0,0,0.1); }
+  .pip { background:#222; border-radius:50%; align-self:center; justify-self:center; width:7px; height:7px; }
+  .die.numeric { display:flex; align-items:center; justify-content:center; font-size:20px; font-weight:bold; padding:0; }
+  #total { padding:4px 8px; background:#fff; border:1px solid #ddd; border-radius:4px; font-size:13px; font-family:monospace; text-align:center; }
+  #simulate { display:flex; flex-wrap:wrap; gap:6px; align-items:center; font-size:11px; padding:4px 6px; background:#f0f0f0; border:1px solid #ddd; border-radius:4px; }
+  #simulate input[type="number"] { width:60px; padding:1px 3px; font-size:11px; }
+  #histWrap { flex:1; display:flex; flex-direction:column; min-height:60px; gap:3px; }
+  #histChart { flex:1; min-height:60px; background:#fff; border:1px solid #ddd; border-radius:4px; }
+  #histLog { max-height:60px; overflow-y:auto; font-family:monospace; font-size:10px; background:#fff; border:1px solid #ddd; border-radius:4px; padding:3px 6px; }
+  .logRow { display:flex; gap:6px; padding:1px 0; }
+  .logRow .ts { color:#999; }
+  .logRow .vals { flex:1; }
+  .logRow .sum { font-weight:bold; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="controls">
+    <label>Dice <input id="count" type="number" min="1" max="20" value="2"></label>
+    <label>Sides
+      <select id="sides">
+        <option>4</option><option selected>6</option><option>8</option><option>10</option><option>12</option><option>20</option><option>100</option>
+      </select>
+    </label>
+    <button id="rollBtn" class="primary">Roll</button>
+    <button id="insertBtn">Insert ↑</button>
+    <button id="clearBtn">Clear history</button>
+  </div>
+  <div id="dice"></div>
+  <div id="total">Total: 0</div>
+  <div id="simulate">
+    <label>Simulate <input id="simN" type="number" min="1" max="100000" value="1000"> rolls</label>
+    <button id="simBtn">Run</button>
+    <span id="simStat" style="color:#555"></span>
+  </div>
+  <div id="histWrap">
+    <canvas id="histChart"></canvas>
+    <div id="histLog"></div>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const history = [];     // each entry: { values:[...], sum, ts }
+const distribution = {}; // sum → count, used for histogram (covers both manual rolls and simulations)
+
+function rollOnce(count, sides) {
+  const v = [];
+  for (let i = 0; i < count; i++) v.push(1 + Math.floor(Math.random() * sides));
+  return v;
+}
+
+function pipPositions(n) {
+  // Standard dice pip arrangement for n=1..6 in a 3x3 grid (col-row, 1-indexed).
+  const grid = {
+    1: [[2,2]],
+    2: [[1,1],[3,3]],
+    3: [[1,1],[2,2],[3,3]],
+    4: [[1,1],[3,1],[1,3],[3,3]],
+    5: [[1,1],[3,1],[2,2],[1,3],[3,3]],
+    6: [[1,1],[3,1],[1,2],[3,2],[1,3],[3,3]]
+  };
+  return grid[n] || [];
+}
+
+function renderDice(values, sides) {
+  const container = $('dice');
+  container.innerHTML = '';
+  for (const v of values) {
+    const die = document.createElement('div');
+    die.className = 'die';
+    if (sides !== 6) {
+      die.classList.add('numeric');
+      die.textContent = v;
+    } else {
+      const pips = pipPositions(v);
+      // Fill 9-cell grid: empty cells via div spacers
+      for (let r = 1; r <= 3; r++) {
+        for (let c = 1; c <= 3; c++) {
+          const cell = document.createElement('div');
+          if (pips.some(([cc, rr]) => cc === c && rr === r)) {
+            const pip = document.createElement('div'); pip.className = 'pip';
+            cell.appendChild(pip);
+            cell.style.display = 'flex';
+            cell.style.alignItems = 'center';
+            cell.style.justifyContent = 'center';
+          }
+          die.appendChild(cell);
+        }
+      }
+    }
+    container.appendChild(die);
+  }
+  $('total').textContent = 'Total: ' + values.reduce((a,b) => a+b, 0);
+}
+
+function recordRoll(values) {
+  const sum = values.reduce((a,b) => a+b, 0);
+  history.unshift({ values, sum, ts: new Date().toLocaleTimeString() });
+  if (history.length > 200) history.pop();
+  distribution[sum] = (distribution[sum] || 0) + 1;
+}
+
+function refreshLog() {
+  const log = $('histLog');
+  log.innerHTML = '';
+  for (const e of history.slice(0, 50)) {
+    const row = document.createElement('div'); row.className = 'logRow';
+    const t = document.createElement('span'); t.className = 'ts'; t.textContent = e.ts;
+    const v = document.createElement('span'); v.className = 'vals'; v.textContent = e.values.join(', ');
+    const s = document.createElement('span'); s.className = 'sum'; s.textContent = '= ' + e.sum;
+    row.appendChild(t); row.appendChild(v); row.appendChild(s);
+    log.appendChild(row);
+  }
+}
+
+function drawHistogram() {
+  const cv = $('histChart');
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  if (r.width === 0 || r.height === 0) return;
+  cv.width = r.width * dpr; cv.height = r.height * dpr;
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const W = r.width, H = r.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const sums = Object.keys(distribution).map(Number).sort((a,b) => a - b);
+  if (!sums.length) {
+    ctx.fillStyle = '#aaa'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('Roll or simulate to see distribution', W/2, H/2);
+    return;
+  }
+  const minS = sums[0], maxS = sums[sums.length-1];
+  const padL = 28, padR = 8, padT = 6, padB = 16;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const maxCount = Math.max(...sums.map(s => distribution[s]));
+  const barW = plotW / Math.max(1, (maxS - minS + 1));
+  ctx.fillStyle = '#3a8'; ctx.strokeStyle = '#777'; ctx.lineWidth = 0.5;
+  for (const s of sums) {
+    const x = padL + (s - minS) * barW;
+    const h = (distribution[s] / maxCount) * plotH;
+    ctx.fillRect(x + 1, padT + plotH - h, Math.max(1, barW - 2), h);
+  }
+  ctx.fillStyle = '#333'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  for (const s of sums) {
+    if ((s - minS) % Math.max(1, Math.ceil((maxS-minS+1)/12)) !== 0 && s !== minS && s !== maxS) continue;
+    const x = padL + (s - minS) * barW + barW/2;
+    ctx.fillText(String(s), x, padT + plotH + 2);
+  }
+  ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+  ctx.fillText(String(maxCount), padL - 3, padT + 2);
+  ctx.fillText('0', padL - 3, padT + plotH - 2);
+}
+
+function refreshAll() { refreshLog(); drawHistogram(); }
+
+$('rollBtn').addEventListener('click', () => {
+  const count = Math.max(1, Math.min(20, +$('count').value || 1));
+  const sides = +$('sides').value;
+  const v = rollOnce(count, sides);
+  renderDice(v, sides);
+  recordRoll(v);
+  refreshAll();
+});
+
+$('simBtn').addEventListener('click', () => {
+  const n = Math.max(1, Math.min(100000, +$('simN').value || 1000));
+  const count = Math.max(1, Math.min(20, +$('count').value || 1));
+  const sides = +$('sides').value;
+  let totalSum = 0; let totalRolls = 0;
+  for (let i = 0; i < n; i++) {
+    const v = rollOnce(count, sides);
+    const s = v.reduce((a,b) => a+b, 0);
+    distribution[s] = (distribution[s] || 0) + 1;
+    totalSum += s; totalRolls++;
+  }
+  const mean = totalSum / totalRolls;
+  $('simStat').textContent = `${n} rolls, mean = ${mean.toFixed(2)} (expected ${(count * (sides+1)/2).toFixed(2)})`;
+  refreshAll();
+});
+
+$('clearBtn').addEventListener('click', () => {
+  history.length = 0;
+  for (const k of Object.keys(distribution)) delete distribution[k];
+  $('simStat').textContent = '';
+  refreshAll();
+});
+
+$('insertBtn').addEventListener('click', () => {
+  // Render a snapshot of dice + total on a clean canvas and place on the board.
+  const diceEl = $('dice');
+  const r = diceEl.getBoundingClientRect();
+  const W = Math.max(220, r.width), H = r.height + 30;
+  const out = document.createElement('canvas');
+  const scale = 2;
+  out.width = W * scale; out.height = H * scale;
+  const c = out.getContext('2d');
+  c.scale(scale, scale);
+  c.fillStyle = '#fff'; c.fillRect(0, 0, W, H);
+
+  // Re-render dice onto canvas in matching style
+  const sides = +$('sides').value;
+  const count = diceEl.children.length;
+  if (!count) return;
+  const dieSize = 42, gap = 6;
+  const totalW = count * dieSize + (count - 1) * gap;
+  let dx = (W - totalW) / 2, dy = 6;
+  const values = Array.from(diceEl.children).map(el => {
+    if (sides === 6) {
+      // Read pip positions from rendered cells: count pip nodes
+      return el.querySelectorAll('.pip').length;
+    } else {
+      return +el.textContent;
+    }
+  });
+  c.lineWidth = 1.5; c.strokeStyle = '#333';
+  for (const v of values) {
+    c.fillStyle = '#fff'; c.beginPath();
+    c.roundRect(dx, dy, dieSize, dieSize, 7); c.fill(); c.stroke();
+    if (sides === 6) {
+      c.fillStyle = '#222';
+      const pips = pipPositions(v);
+      const cellW = dieSize / 3;
+      for (const [cc, rr] of pips) {
+        const px = dx + (cc - 0.5) * cellW;
+        const py = dy + (rr - 0.5) * cellW;
+        c.beginPath(); c.arc(px, py, 3.5, 0, Math.PI*2); c.fill();
+      }
+    } else {
+      c.fillStyle = '#222';
+      c.font = 'bold 20px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText(String(v), dx + dieSize/2, dy + dieSize/2);
+    }
+    dx += dieSize + gap;
+  }
+  c.fillStyle = '#222'; c.font = '13px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'top';
+  c.fillText('Total: ' + values.reduce((a,b) => a+b, 0), W/2, dy + dieSize + 6);
+
+  const dataUrl = out.toDataURL('image/png');
+  if (window.sankore && window.sankore.addObject) {
+    window.sankore.addObject(dataUrl, 0, 0, 0, 0, false);
+  } else {
+    const w = window.open('', '_blank');
+    if (w) w.document.write('<title>Dice</title><body style="margin:0;background:#222;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img style="background:#fff;padding:8px;" src="' + dataUrl + '"></body>');
+  }
+});
+
+new ResizeObserver(drawHistogram).observe($('histChart'));
+window.addEventListener('resize', drawHistogram);
+window.addEventListener('load', () => { renderDice([], 6); drawHistogram(); });
+renderDice([], 6);
+drawHistogram();
+</script>
+</body>
+</html>

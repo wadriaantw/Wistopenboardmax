@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Unit Circle</title>
+<style>
+  html,body { margin:0; padding:0; width:100%; height:100%; background:#fff; font-family: system-ui, sans-serif; user-select:none; }
+  #root { display:flex; flex-direction:column; height:100%; }
+  #readout { padding:4px 8px; background:#f4f4f4; font-size:11px; font-family:monospace; border-bottom:1px solid #ddd; white-space:nowrap; overflow:auto; }
+  #wrap { min-height:200px; }
+  #wrap { flex:1; position:relative; }
+  canvas { position:absolute; inset:0; width:100%; height:100%; }
+</style>
+</head>
+<body>
+<div id="root">
+  <div id="readout">θ = <span id="tVal">0°</span> | sin = <span id="sVal">0.000</span> | cos = <span id="cVal">1.000</span> | tan = <span id="tnVal">0.000</span></div>
+  <div id="wrap"><canvas id="c"></canvas></div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('c'); const ctx = cv.getContext('2d');
+let theta = Math.PI / 6;
+
+// Key angles to snap to (these are the labeled positions on the circle)
+const KEY_ANGLES = [
+  0, Math.PI/6, Math.PI/4, Math.PI/3, Math.PI/2,
+  2*Math.PI/3, 3*Math.PI/4, 5*Math.PI/6, Math.PI,
+  7*Math.PI/6, 5*Math.PI/4, 4*Math.PI/3, 3*Math.PI/2,
+  5*Math.PI/3, 7*Math.PI/4, 11*Math.PI/6
+];
+
+// Pretty exact-value strings for sin/cos at the key angles
+const EXACT = {
+  0:           { s: '0',     c: '1'      },
+  30:          { s: '1/2',   c: '√3/2'   },
+  45:          { s: '√2/2',  c: '√2/2'   },
+  60:          { s: '√3/2',  c: '1/2'    },
+  90:          { s: '1',     c: '0'      },
+  120:         { s: '√3/2',  c: '−1/2'   },
+  135:         { s: '√2/2',  c: '−√2/2'  },
+  150:         { s: '1/2',   c: '−√3/2'  },
+  180:         { s: '0',     c: '−1'     },
+  210:         { s: '−1/2',  c: '−√3/2'  },
+  225:         { s: '−√2/2', c: '−√2/2'  },
+  240:         { s: '−√3/2', c: '−1/2'   },
+  270:         { s: '−1',    c: '0'      },
+  300:         { s: '−√3/2', c: '1/2'    },
+  315:         { s: '−√2/2', c: '√2/2'   },
+  330:         { s: '−1/2',  c: '√3/2'   }
+};
+
+function snapToKey(a) {
+  // Normalize to [0, 2π)
+  a = ((a % (2*Math.PI)) + 2*Math.PI) % (2*Math.PI);
+  let best = a, bestDist = Infinity;
+  for (const k of KEY_ANGLES) {
+    const d = Math.min(Math.abs(a - k), Math.abs(a - k - 2*Math.PI), Math.abs(a - k + 2*Math.PI));
+    if (d < bestDist) { bestDist = d; best = k; }
+  }
+  return best;
+}
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  cv.width = r.width * dpr; cv.height = r.height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+function draw() {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  ctx.clearRect(0,0,W,H);
+  const cx = W/2, cy = H/2;
+  const R = Math.min(W, H)/2 - 30;
+  // axes
+  ctx.strokeStyle = '#aaa'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(cx-R-20, cy); ctx.lineTo(cx+R+20, cy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx, cy-R-20); ctx.lineTo(cx, cy+R+20); ctx.stroke();
+  // circle
+  ctx.strokeStyle = '#333'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI*2); ctx.stroke();
+  // special angles
+  ctx.fillStyle = '#666'; ctx.font = '11px sans-serif';
+  const specials = [[0,'0'], [Math.PI/6,'π/6'], [Math.PI/4,'π/4'], [Math.PI/3,'π/3'], [Math.PI/2,'π/2'],
+    [2*Math.PI/3,'2π/3'], [3*Math.PI/4,'3π/4'], [5*Math.PI/6,'5π/6'], [Math.PI,'π'],
+    [7*Math.PI/6,'7π/6'], [5*Math.PI/4,'5π/4'], [4*Math.PI/3,'4π/3'], [3*Math.PI/2,'3π/2'],
+    [5*Math.PI/3,'5π/3'], [7*Math.PI/4,'7π/4'], [11*Math.PI/6,'11π/6']];
+  for (const [a, lbl] of specials) {
+    const x = cx + Math.cos(a)*R, y = cy - Math.sin(a)*R;
+    ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI*2); ctx.fill();
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(lbl, cx + Math.cos(a)*(R+15), cy - Math.sin(a)*(R+15));
+  }
+  // radius
+  const px = cx + Math.cos(theta)*R, py = cy - Math.sin(theta)*R;
+  ctx.strokeStyle = 'crimson'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(px, py); ctx.stroke();
+  // sin/cos projections
+  ctx.strokeStyle = '#0a7'; ctx.lineWidth = 2; ctx.setLineDash([4,4]);
+  ctx.beginPath(); ctx.moveTo(px, cy); ctx.lineTo(px, py); ctx.stroke();
+  ctx.strokeStyle = '#08c';
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(px, cy); ctx.stroke();
+  ctx.setLineDash([]);
+  // point
+  ctx.fillStyle = 'crimson';
+  ctx.beginPath(); ctx.arc(px, py, 6, 0, Math.PI*2); ctx.fill();
+  // angle arc
+  ctx.strokeStyle = '#c80'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx, cy, 22, 0, -theta, true); ctx.stroke();
+
+  // Side-length labels (just the magnitudes — no sin=/cos= prefix) plus a
+  // (x,y) coordinate at the tip of the radius.
+  const deg = Math.round(theta * 180 / Math.PI);
+  const exact = EXACT[deg];
+  const sinV = Math.sin(theta), cosV = Math.cos(theta);
+  const sinAbs = Math.abs(sinV), cosAbs = Math.abs(cosV);
+  // Lengths are non-negative magnitudes; strip leading minus for the labels.
+  const stripSign = s => s.replace(/^[−-]/, '');
+  const horizLen = exact ? stripSign(exact.c) : cosAbs.toFixed(3);
+  const vertLen  = exact ? stripSign(exact.s) : sinAbs.toFixed(3);
+  // Coordinates at the point keep their signs.
+  const xCoord = exact ? exact.c : cosV.toFixed(3);
+  const yCoord = exact ? exact.s : sinV.toFixed(3);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  // ----- Math notation renderer -----
+  // Handles: integers, "−" sign, fractions (a/b), radicals (√n), and radical-over-int (√n/d).
+  const MATH_FONT_FAMILY = '"Cambria Math", "STIX Two Math", "Latin Modern Math", "Times New Roman", serif';
+
+  function tokenWidth(ctx, text) {
+    if (text.startsWith('√')) {
+      const inner = text.slice(1);
+      return ctx.measureText('√').width + ctx.measureText(inner).width + 4;
+    }
+    return ctx.measureText(text).width;
+  }
+  function drawToken(ctx, text, cx, cy, fontPx) {
+    if (text.startsWith('√')) {
+      const inner = text.slice(1);
+      const wRoot = ctx.measureText('√').width;
+      const wInner = ctx.measureText(inner).width;
+      const total = wRoot + wInner + 4;
+      let x = cx - total/2;
+      ctx.fillText('√', x + wRoot/2, cy);
+      x += wRoot;
+      ctx.fillText(inner, x + wInner/2, cy);
+      // vinculum (overbar) for the radicand
+      const overY = cy - fontPx * 0.42;
+      ctx.beginPath();
+      ctx.lineWidth = Math.max(0.9, fontPx * 0.045);
+      ctx.strokeStyle = ctx.fillStyle;
+      ctx.moveTo(x, overY);
+      ctx.lineTo(x + wInner + 2, overY);
+      ctx.stroke();
+    } else {
+      ctx.fillText(text, cx, cy);
+    }
+  }
+  // Returns {w, h} for a math expression rendered at fontPx.
+  function measureMath(ctx, text, fontPx) {
+    text = (text || '').toString();
+    let sign = '';
+    if (text.startsWith('−') || text.startsWith('-')) { sign = '−'; text = text.slice(1); }
+    const idx = text.indexOf('/');
+    ctx.font = `bold ${fontPx}px ${MATH_FONT_FAMILY}`;
+    const wSign = sign ? ctx.measureText(sign).width + 3 : 0;
+    if (idx < 0) {
+      return { w: wSign + tokenWidth(ctx, text), h: fontPx * 1.25 };
+    }
+    const small = fontPx * 0.92;
+    ctx.font = `bold ${small}px ${MATH_FONT_FAMILY}`;
+    const w = wSign + Math.max(tokenWidth(ctx, text.slice(0, idx)), tokenWidth(ctx, text.slice(idx + 1))) + 6;
+    return { w, h: fontPx * 2.05 };
+  }
+  // Draw centered at (cx, cy).
+  function drawMath(ctx, text, cx, cy, fontPx, color) {
+    text = (text || '').toString();
+    let sign = '';
+    if (text.startsWith('−') || text.startsWith('-')) { sign = '−'; text = text.slice(1); }
+    ctx.save();
+    ctx.fillStyle = color;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    const idx = text.indexOf('/');
+    if (idx < 0) {
+      ctx.font = `bold ${fontPx}px ${MATH_FONT_FAMILY}`;
+      const wSign = sign ? ctx.measureText(sign).width + 3 : 0;
+      const wTok = tokenWidth(ctx, text);
+      const total = wSign + wTok;
+      let x = cx - total/2;
+      if (sign) {
+        ctx.fillText(sign, x + ctx.measureText(sign).width/2, cy);
+        x += wSign;
+      }
+      drawToken(ctx, text, x + wTok/2, cy, fontPx);
+      ctx.restore();
+      return;
+    }
+
+    const num = text.slice(0, idx), den = text.slice(idx + 1);
+    const small = fontPx * 0.92;
+    ctx.font = `bold ${small}px ${MATH_FONT_FAMILY}`;
+    const wNum = tokenWidth(ctx, num);
+    const wDen = tokenWidth(ctx, den);
+    const wBar = Math.max(wNum, wDen) + 6;
+    ctx.font = `bold ${fontPx}px ${MATH_FONT_FAMILY}`;
+    const wSign = sign ? ctx.measureText(sign).width + 4 : 0;
+    const total = wSign + wBar;
+    let x = cx - total/2;
+    if (sign) {
+      ctx.fillText(sign, x + ctx.measureText(sign).width/2, cy);
+      x += wSign;
+    }
+    // bar
+    ctx.beginPath();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = Math.max(1, fontPx * 0.06);
+    ctx.moveTo(x, cy);
+    ctx.lineTo(x + wBar, cy);
+    ctx.stroke();
+    // numerator above bar
+    ctx.font = `bold ${small}px ${MATH_FONT_FAMILY}`;
+    const offNum = small * 0.6;
+    drawToken(ctx, num, x + wBar/2, cy - offNum, small);
+    // denominator below bar
+    const offDen = small * 0.7;
+    drawToken(ctx, den, x + wBar/2, cy + offDen, small);
+    ctx.restore();
+  }
+
+  // White-box around math, then render. cx,cy is the box center.
+  function drawMathBox(ctx, text, cx, cy, fontPx, color) {
+    const m = measureMath(ctx, text, fontPx);
+    const padX = 5, padY = 3;
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fillRect(cx - m.w/2 - padX, cy - m.h/2 - padY, m.w + padX*2, m.h + padY*2);
+    drawMath(ctx, text, cx, cy, fontPx, color);
+  }
+
+  // Coord pair: ( <xMath>, <yMath> )
+  function drawCoordPair(ctx, xText, yText, cx, cy, fontPx, color) {
+    ctx.font = `bold ${fontPx}px ${MATH_FONT_FAMILY}`;
+    const wOpen = ctx.measureText('(').width;
+    const wClose = ctx.measureText(')').width;
+    const wComma = ctx.measureText(', ').width;
+    const mx = measureMath(ctx, xText, fontPx);
+    const my = measureMath(ctx, yText, fontPx);
+    const total = wOpen + mx.w + wComma + my.w + wClose + 4;
+    const h = Math.max(mx.h, my.h);
+    const padX = 5, padY = 3;
+    ctx.fillStyle = 'rgba(255,255,255,0.92)';
+    ctx.fillRect(cx - total/2 - padX, cy - h/2 - padY, total + padX*2, h + padY*2);
+    let x = cx - total/2;
+    ctx.fillStyle = color;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('(', x, cy);
+    x += wOpen + 1;
+    drawMath(ctx, xText, x + mx.w/2, cy, fontPx, color);
+    x += mx.w + 1;
+    ctx.fillStyle = color;
+    ctx.fillText(', ', x, cy);
+    x += wComma + 1;
+    drawMath(ctx, yText, x + my.w/2, cy, fontPx, color);
+    x += my.w + 1;
+    ctx.fillStyle = color;
+    ctx.fillText(')', x, cy);
+  }
+
+  const FONT_PX = 13;
+
+  // Horizontal leg length
+  if (cosAbs > 0.05) {
+    const midX = (cx + px) / 2;
+    const labelY = cy + (sinV >= 0 ? 18 : -18);
+    drawMathBox(ctx, horizLen, midX, labelY, FONT_PX, '#08c');
+  }
+  // Vertical leg length
+  if (sinAbs > 0.05) {
+    const labelX = px + (cosV >= 0 ? 26 : -26);
+    const midY = (cy + py) / 2;
+    drawMathBox(ctx, vertLen, labelX, midY, FONT_PX, '#0a7');
+  }
+  // Hypotenuse (radius = 1) label perpendicular to the radius
+  const hypMidX = (cx + px) / 2;
+  const hypMidY = (cy + py) / 2;
+  const ux = -Math.sin(theta), uy = -Math.cos(theta);
+  drawMathBox(ctx, '1', hypMidX + ux*16, hypMidY + uy*16, FONT_PX, 'crimson');
+
+  // (x, y) coordinate at the tip of the radius, offset away from the circle
+  const tipOx = Math.cos(theta) * 28;
+  const tipOy = -Math.sin(theta) * 28;
+  drawCoordPair(ctx, xCoord, yCoord, px + tipOx, py + tipOy, FONT_PX, '#222');
+
+  $('tVal').textContent = (theta * 180/Math.PI).toFixed(1) + '°';
+  $('sVal').textContent = exact ? exact.s : sinV.toFixed(3);
+  $('cVal').textContent = exact ? exact.c : cosV.toFixed(3);
+  let tn;
+  if (Math.abs(cosV) < 1e-9) tn = '∞';
+  else if (exact) {
+    // tan via exact strings: tan = sin/cos as a fraction string isn't trivial — fall back to decimal
+    tn = (sinV / cosV).toFixed(3);
+  } else {
+    tn = Math.tan(theta).toFixed(3);
+  }
+  $('tnVal').textContent = tn;
+}
+let dragging = false;
+function setAngleFromEvent(ev) {
+  const t = ev.touches ? ev.touches[0] : ev;
+  const r = cv.getBoundingClientRect();
+  const x = t.clientX - r.left - r.width/2;
+  const y = -(t.clientY - r.top - r.height/2);
+  let raw = Math.atan2(y, x);
+  if (raw < 0) raw += 2*Math.PI;
+  theta = snapToKey(raw);
+  draw();
+}
+cv.addEventListener('mousedown', e => { dragging = true; setAngleFromEvent(e); });
+cv.addEventListener('mousemove', e => { if (dragging) setAngleFromEvent(e); });
+window.addEventListener('mouseup', () => { dragging = false; });
+cv.addEventListener('touchstart', e => { e.preventDefault(); dragging = true; setAngleFromEvent(e); }, { passive: false });
+cv.addEventListener('touchmove', e => { if (dragging) { e.preventDefault(); setAngleFromEvent(e); } }, { passive: false });
+cv.addEventListener('touchend', () => { dragging = false; });
+new ResizeObserver(resize).observe(document.body);
+window.addEventListener('resize', resize);
+window.addEventListener('load', resize);
+let _lw=0,_lh=0;
+setInterval(() => {
+  const r = cv.getBoundingClientRect();
+  if (r.width !== _lw || r.height !== _lh) { _lw=r.width; _lh=r.height; resize(); }
+}, 250);
+resize();
+setTimeout(resize, 100);
+setTimeout(resize, 500);
+</script>
+</body>
+</html>

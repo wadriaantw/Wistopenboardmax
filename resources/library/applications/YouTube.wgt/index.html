@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>YouTube</title>
+  <style>
+    html,body { margin:0; padding:0; width:100%; height:100%; background:#111; font-family: system-ui, sans-serif; color:#eee; }
+    #search { display:flex; gap:6px; padding:8px; background:#1a1a1a; border-bottom:1px solid #333; box-sizing:border-box; }
+    #search input { flex:1; padding:8px 12px; font-size:14px; border-radius:4px; border:1px solid #444; background:#222; color:#fff; }
+    #search button { padding:8px 16px; font-size:14px; border:none; border-radius:4px; background:#c00; color:#fff; cursor:pointer; }
+    #search button:hover { background:#e00; }
+    #search button.back { background:#444; }
+    #search button.back:hover { background:#666; }
+    #results { position:absolute; top:50px; left:0; right:0; bottom:0; overflow-y:auto; padding:8px; box-sizing:border-box; }
+    #status { padding:20px; text-align:center; color:#999; font-size:13px; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:10px; }
+    .card { background:#1e1e1e; border-radius:6px; overflow:hidden; cursor:pointer; transition:transform 0.1s; }
+    .card:hover { transform:scale(1.02); background:#2a2a2a; }
+    .card img { width:100%; aspect-ratio:16/9; object-fit:cover; display:block; background:#000; }
+    .card .meta { padding:6px 8px; }
+    .card .title { font-size:12px; line-height:1.3; max-height:2.6em; overflow:hidden; color:#fff; }
+    .card .author { font-size:11px; color:#999; margin-top:3px; }
+    #player { position:absolute; top:50px; left:0; right:0; bottom:0; background:#000; }
+    #player video { width:100%; height:100%; display:block; background:#000; }
+    #player iframe { border:0; width:100%; height:100%; display:block; }
+  </style>
+</head>
+<body>
+
+<div id="search">
+  <button id="backBtn" class="back" style="display:none;">‹ Back</button>
+  <input id="q" type="text" placeholder="Search YouTube or paste a URL / video ID" autofocus>
+  <button id="go">Search</button>
+</div>
+
+<div id="results"><div id="status">Type a search query above.</div></div>
+<div id="player" style="display:none;"></div>
+
+<script>
+// Public YouTube search/stream backends (no API key).
+const PIPED_APIS = [];
+const INVIDIOUS_APIS = [
+  'https://inv.thepixora.com',
+  'https://invidious.privacydev.net',
+  'https://yewtu.be',
+  'https://inv.nadeko.net',
+  'https://iv.datura.network'
+];
+
+let _goodInvidiousInstance = null;
+
+const $ = id => document.getElementById(id);
+
+function extractId(s) {
+  s = (s || '').trim();
+  if (!s) return null;
+  const patterns = [
+    /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/shorts\/)([A-Za-z0-9_-]{11})/,
+    /^([A-Za-z0-9_-]{11})$/
+  ];
+  for (const p of patterns) { const m = s.match(p); if (m) return m[1]; }
+  return null;
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+async function fetchJsonWithTimeout(url, ms) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal, mode: 'cors' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.json();
+  } finally { clearTimeout(t); }
+}
+
+function normalize(item, source) {
+  if (source === 'piped') {
+    const m = (item.url || '').match(/v=([A-Za-z0-9_-]{11})/);
+    if (!m) return null;
+    return { videoId: m[1], title: item.title || '', author: item.uploaderName || '',
+      thumb: item.thumbnail || ('https://i.ytimg.com/vi/' + m[1] + '/mqdefault.jpg') };
+  }
+  if (item.type && item.type !== 'video') return null;
+  if (!item.videoId) return null;
+  let thumb = '';
+  if (Array.isArray(item.videoThumbnails) && item.videoThumbnails.length > 0) {
+    const medium = item.videoThumbnails.find(t => t.quality === 'medium') || item.videoThumbnails[0];
+    thumb = medium.url;
+  }
+  if (!thumb) thumb = 'https://i.ytimg.com/vi/' + item.videoId + '/mqdefault.jpg';
+  return { videoId: item.videoId, title: item.title || '', author: item.author || '', thumb };
+}
+
+async function searchYouTube(query) {
+  const errors = [];
+  for (const base of PIPED_APIS) {
+    try {
+      const data = await fetchJsonWithTimeout(base + '/search?q=' + encodeURIComponent(query) + '&filter=videos', 6000);
+      const items = (data && Array.isArray(data.items)) ? data.items : [];
+      const normalized = items.map(i => normalize(i, 'piped')).filter(Boolean);
+      if (normalized.length > 0) return { items: normalized };
+      errors.push(base + ': empty');
+    } catch (e) { errors.push(base + ': ' + e.message); }
+  }
+  for (const base of INVIDIOUS_APIS) {
+    try {
+      const data = await fetchJsonWithTimeout(base + '/api/v1/search?type=video&q=' + encodeURIComponent(query), 6000);
+      const items = Array.isArray(data) ? data : [];
+      const normalized = items.map(i => normalize(i, 'invidious')).filter(Boolean);
+      if (normalized.length > 0) return { items: normalized };
+      errors.push(base + ': empty');
+    } catch (e) { errors.push(base + ': ' + e.message); }
+  }
+  return { items: [], errors };
+}
+
+function renderResults(items) {
+  const g = document.createElement('div');
+  g.className = 'grid';
+  for (const it of items) {
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML =
+      '<img src="' + escapeHtml(it.thumb) + '" loading="lazy" onerror="this.src=\'https://i.ytimg.com/vi/' + escapeHtml(it.videoId) + '/mqdefault.jpg\'">' +
+      '<div class="meta"><div class="title">' + escapeHtml(it.title) + '</div>' +
+      '<div class="author">' + escapeHtml(it.author) + '</div></div>';
+    card.addEventListener('click', () => play(it.videoId));
+    g.appendChild(card);
+  }
+  return g;
+}
+
+// Fetch muxed stream URLs for a video from one Invidious instance.
+// ?local=true asks Invidious to proxy the stream through itself.
+// We then force the stream URLs to use the same scheme as the API base
+// (always https://) so QtWebEngine doesn't block them as mixed content.
+async function fetchStreams(base, videoId) {
+  try {
+    const data = await fetchJsonWithTimeout(
+      base + '/api/v1/videos/' + encodeURIComponent(videoId) + '?fields=formatStreams&local=true', 8000);
+    const streams = (data && data.formatStreams) || [];
+    if (!streams.length) return null;
+    const baseScheme = base.startsWith('https') ? 'https' : 'http';
+    return [...streams]
+      .map(s => ({ ...s, url: s.url ? s.url.replace(/^http:/, baseScheme + ':') : s.url }))
+      .sort((a, b) => {
+        const aM = (a.type || '').includes('mp4') ? 0 : 1;
+        const bM = (b.type || '').includes('mp4') ? 0 : 1;
+        if (aM !== bM) return aM - bM;
+        const aQ = parseInt((a.qualityLabel || '').replace(/\D/g, '')) || 0;
+        const bQ = parseInt((b.qualityLabel || '').replace(/\D/g, '')) || 0;
+        return bQ - aQ;
+      });
+  } catch (e) { return null; }
+}
+
+function status(msg) {
+  const p = $('player');
+  if (p) p.innerHTML = '<div style="color:#ccc;padding:16px;font-size:12px;white-space:pre-wrap">' + escapeHtml(msg) + '</div>';
+}
+
+// Embed providers — Invidious instances whose /embed/<id> page does NOT set
+// `frame-ancestors` / `X-Frame-Options` and so can be loaded in an iframe.
+// The previous formatStreams approach (HTML5 <video>) is dead because every
+// public Invidious instance now blocks /api/v1/videos for stream extraction.
+// YouTube's /embed endpoint does NOT set frame-ancestors and is the most
+// reliable. youtube-nocookie is a fallback; same content under a less-tracked
+// domain. Per-video uploader settings can still block embedding (error 150/153)
+// — when that happens, the user can use the fallback Watch-on-YouTube link.
+// WistOpenboard fork: muted autoplay (`mute=1`) bypasses QtWebEngine's autoplay
+// policy which was leaving the video stuck on a black screen. The user can click
+// YouTube's unmute button to get audio. `playsinline=1` keeps it inline rather
+// than launching a fullscreen native player on some platforms.
+const EMBED_PROVIDERS = [
+  id => 'https://www.youtube.com/embed/' + encodeURIComponent(id) + '?rel=0&autoplay=1&mute=1&playsinline=1',
+  id => 'https://www.youtube-nocookie.com/embed/' + encodeURIComponent(id) + '?rel=0&autoplay=1&mute=1&playsinline=1'
+];
+
+// WistOpenboard fork: route external links through the W3C widget API so
+// they actually open. Plain `target="_blank"` is a no-op inside OpenBoard's
+// QtWebEngine widget host — there is no createWindow handler that maps
+// _blank to QDesktopServices::openUrl.
+//
+// OpenBoard's QWebChannel injection sets `window.widget` asynchronously via
+// asyncAPI.js — which means on a fast click the property may still be
+// undefined. We check, and if missing, fall back to navigating the iframe
+// host directly to the YouTube URL (replaces the player area with the real
+// YouTube page in the widget's own QtWebEngine — videos play there).
+// Show a brief status banner inside the player so we can verify each
+// fallback step actually fired.
+function _showStatus(text, color) {
+  try {
+    const p = document.getElementById('player');
+    if (!p) return;
+    const status = document.createElement('div');
+    status.style.cssText = 'position:absolute;top:0;left:0;right:0;background:' + (color || '#040')
+      + ';color:#fff;padding:4px 8px;font-size:11px;z-index:9999;';
+    status.textContent = text;
+    p.appendChild(status);
+    setTimeout(() => { try { status.remove(); } catch (e) {} }, 3000);
+  } catch (e) {}
+}
+
+function openExternal(url) {
+  _showStatus('Opening: ' + url);
+
+  // Primary path: navigate to a custom scheme that WistOpenboard's WebPage
+  // intercepts in acceptNavigationRequest and forwards to QDesktopServices,
+  // which opens the user's real default browser. Top-level navigation to
+  // a scheme that's not actually performed (we return false) so the widget
+  // page itself stays on screen.
+  try {
+    window.location.href = 'openboard-external:' + url;
+    return;
+  } catch (e) { _showStatus('navigate failed: ' + e.message, '#600'); }
+
+  // Fallbacks (kept just in case): widget API + window.open. Neither has been
+  // reliable in QtWebEngine widget context, but cheap to keep as a safety net.
+  try {
+    if (window.widget && typeof widget.openExternalURL === 'function') {
+      widget.openExternalURL(url);
+      return;
+    }
+    if (window.widget && typeof widget.openURL === 'function') {
+      widget.openURL(url);
+      return;
+    }
+  } catch (e) {}
+  try { window.open(url, '_blank'); } catch (e) {}
+}
+window.openExternal = openExternal;
+
+async function play(id) {
+  $('results').style.display = 'none';
+  const p = $('player');
+  p.style.display = 'block';
+  $('backBtn').style.display = 'inline-block';
+
+  const watch = 'https://www.youtube.com/watch?v=' + encodeURIComponent(id);
+  const watchAttr = escapeHtml(watch);
+
+  // Always render a small fallback bar with a "Watch on YouTube" link above
+  // the iframe. When YouTube returns embed errors 150/153 (uploader disabled
+  // embedding — common for sports broadcasts, music videos, etc.) the iframe
+  // load event still fires "successfully" because YouTube serves a valid HTML
+  // error page; our cross-origin iframe cannot inspect the content to detect
+  // this. The escape link gives the user a one-click way out without us
+  // needing to detect the embed failure.
+  const fallbackBar =
+    '<div style="background:#222;border-bottom:1px solid #333;padding:6px 10px;font-size:12px;color:#aaa;'
+    + 'display:flex;justify-content:space-between;align-items:center;">'
+    + '<span>If video shows an error or won\'t play:</span>'
+    + '<a href="#" onclick="openExternal(\'' + watchAttr + '\'); return false;" '
+    + 'style="color:#4af;text-decoration:underline;cursor:pointer;">Watch on YouTube ↗</a>'
+    + '</div>'
+    + '<div id="iframeHost" style="position:absolute;top:30px;left:0;right:0;bottom:0;"></div>';
+  p.innerHTML = fallbackBar;
+  const host = $('iframeHost');
+
+  // Try providers in order. If the iframe network-errors or never fires `load`
+  // within the timeout, advance to the next provider.
+  let providerIdx = 0;
+  const tryNext = () => {
+    if (p.style.display === 'none') return;          // user clicked Back
+    if (providerIdx >= EMBED_PROVIDERS.length) {
+      host.innerHTML = '<div style="color:#ccc;padding:20px;font-size:13px;text-align:center;">'
+        + 'Embedding blocked for this video.<br><br>'
+        + '<a href="#" onclick="openExternal(\'' + watchAttr + '\'); return false;" '
+        + 'style="color:#4af;text-decoration:underline;cursor:pointer;font-size:14px;">'
+        + 'Open in browser ↗</a>'
+        + '</div>';
+      return;
+    }
+    const src = EMBED_PROVIDERS[providerIdx++](id);
+    host.innerHTML = '<iframe src="' + src + '" '
+      + 'allow="autoplay; fullscreen; encrypted-media; picture-in-picture" '
+      + 'allowfullscreen></iframe>';
+    const ifr = host.querySelector('iframe');
+    let loaded = false;
+    ifr.addEventListener('load', () => { loaded = true; });
+    ifr.addEventListener('error', () => { setTimeout(tryNext, 50); });
+    setTimeout(() => { if (!loaded) tryNext(); }, 6000);
+  };
+  tryNext();
+
+  try { if (window.widget && widget.preferences) widget.preferences.setItem('lastVideoId', id); } catch(e) {}
+}
+
+function showResults() {
+  $('player').style.display = 'none';
+  $('player').innerHTML = '';
+  $('results').style.display = 'block';
+  $('backBtn').style.display = 'none';
+}
+
+async function onSearch() {
+  const q = $('q').value.trim();
+  if (!q) return;
+  const direct = extractId(q);
+  if (direct) { play(direct); return; }
+  $('results').innerHTML = '<div id="status">Searching…</div>';
+  showResults();
+  const result = await searchYouTube(q);
+  if (!result.items || result.items.length === 0) {
+    const details = (result.errors || []).map(e => '<div style="font-size:11px;color:#666;margin-top:4px;">' + escapeHtml(e) + '</div>').join('');
+    $('results').innerHTML = '<div id="status">No results. All search backends are unavailable — try again in a minute, or paste a video URL directly.' + details + '</div>';
+    return;
+  }
+  $('results').innerHTML = '';
+  $('results').appendChild(renderResults(result.items));
+}
+
+$('go').addEventListener('click', onSearch);
+$('q').addEventListener('keydown', e => { if (e.key === 'Enter') onSearch(); });
+$('backBtn').addEventListener('click', showResults);
+
+['touchstart', 'pointerdown', 'mousedown'].forEach(ev => {
+  $('q').addEventListener(ev, () => $('q').focus(), { passive: true });
+});
+
+try {
+  if (window.widget && widget.preferences) {
+    const saved = widget.preferences.getItem('lastVideoId');
+    if (saved) play(saved);
+  }
+} catch(e) {}
+</script>
+
+</body>
+</html>

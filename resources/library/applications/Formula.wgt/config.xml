@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets"
+        xmlns:ub="http://uniboard.mnemis.com/widgets"
+        id="http://uniboard.mnemis.com/widgets/formula"
+        version="1.0" width="420" height="260" ub:resizable="true">
+  <name>Formula</name>
+  <content src="index.html"/>
+</widget>

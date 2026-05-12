@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Grapher</title>
+  <style>
+    html,body { margin:0; padding:0; width:100%; height:100%; background:#fff; font-family: system-ui, sans-serif; }
+    #root { display:flex; flex-direction:column; height:100%; box-sizing:border-box; }
+    .tabs { display:flex; background:#e8e8e8; border-bottom:1px solid #ccc; }
+    .tab { padding:5px 12px; cursor:pointer; font-size:12px; border-right:1px solid #ccc; }
+    .tab.active { background:#fff; font-weight:bold; }
+    .panel { padding:5px 8px; background:#f4f4f4; border-bottom:1px solid #ddd; display:none; flex-wrap:wrap; gap:6px; font-size:11px; align-items:center; }
+    .panel.active { display:flex; }
+    .panel label { display:flex; align-items:center; gap:3px; }
+    .panel input[type="number"] { width:44px; padding:1px 3px; font-size:11px; }
+    .panel input[type="text"] { padding:1px 4px; font-size:11px; }
+    .panel select { padding:1px; font-size:11px; }
+    button { padding:2px 8px; font-size:11px; cursor:pointer; }
+    #canvasWrap { flex:1; position:relative; }
+    canvas { position:absolute; inset:0; width:100%; height:100%; }
+    #eqList { display:flex; flex-direction:column; gap:2px; padding:3px 8px; max-height:60px; overflow-y:auto; background:#fafafa; border-bottom:1px solid #ddd; font-size:11px; }
+    #eqList:empty { display:none; }
+    .eqRow { display:flex; gap:6px; align-items:center; }
+    .eqColor { width:12px; height:12px; border-radius:2px; border:1px solid #999; }
+    .eqText { flex:1; font-family:monospace; }
+    .eqDel { color:#c44; cursor:pointer; padding:0 4px; }
+    .insertBtn { background:#2a7; color:#fff; border:1px solid #2a7; font-weight:bold; padding:3px 12px; }
+    .insertBtn:hover { background:#3b8; }
+    #footer { padding:4px 8px; background:#f0f0f0; border-top:1px solid #ddd; display:flex; justify-content:flex-end; gap:6px; }
+  </style>
+</head>
+<body>
+<div id="root">
+  <div class="tabs">
+    <div class="tab active" data-tab="grid">Grid</div>
+    <div class="tab" data-tab="equation">Equation</div>
+  </div>
+  <div class="panel active" id="panel-grid">
+    <label>Type
+      <select id="type">
+        <option value="four">4 Quadrants</option>
+        <option value="first">Quadrant I</option>
+        <option value="polar">Polar</option>
+        <option value="plain">Plain</option>
+      </select>
+    </label>
+    <label>X: <input id="xmin" type="number" value="-5">..<input id="xmax" type="number" value="5"></label>
+    <label>Y: <input id="ymin" type="number" value="-5">..<input id="ymax" type="number" value="5"></label>
+    <label>X step <input id="xstep" type="number" value="1" step="0.5"></label>
+    <label>Y step <input id="ystep" type="number" value="1" step="0.5"></label>
+    <label><input type="checkbox" id="equalScale" checked>Equal scale</label>
+    <label><input type="checkbox" id="grid" checked>Grid</label>
+    <label><input type="checkbox" id="xLabels" checked>X #</label>
+    <label><input type="checkbox" id="yLabels" checked>Y #</label>
+    <button id="redraw">Redraw</button>
+  </div>
+  <div class="panel" id="panel-equation">
+    <label>y = <input id="eqInput" type="text" placeholder="x^2, sin(x), 2*x+1, log(x), sqrt(x)" style="width:200px"></label>
+    <label>Color <input id="eqColor" type="color" value="#cc0000"></label>
+    <button id="eqAdd">Add</button>
+    <button id="eqClear">Clear all</button>
+  </div>
+  <div id="eqList"></div>
+  <div id="canvasWrap"><canvas id="c"></canvas></div>
+  <div id="footer">
+    <button class="insertBtn" id="insertBtn">Insert ↑ on board</button>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('c');
+let ctx = cv.getContext('2d');
+const equations = []; // { expr, color, fn }
+let lastBounds = null; // { x, y, w, h } in CSS pixels — full extent of drawn graph including labels/arrows
+
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    $('panel-' + t.dataset.tab).classList.add('active');
+  });
+});
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.max(1, Math.floor(r.width * dpr));
+  cv.height = Math.max(1, Math.floor(r.height * dpr));
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+
+function compileExpr(expr) {
+  // Convert friendly math to JS, sandbox to Math.* funcs
+  let js = String(expr || '').trim();
+  if (!js) return null;
+  js = js.replace(/\^/g, '**');
+  // Insert * between number and letter/paren: 2x → 2*x, 3(x+1) → 3*(x+1)
+  js = js.replace(/(\d)([a-zA-Z(])/g, '$1*$2');
+  js = js.replace(/\)(\d|[a-zA-Z(])/g, ')*$1');
+  // Replace bare names with Math.*
+  const names = ['sin','cos','tan','asin','acos','atan','atan2','sinh','cosh','tanh',
+                 'sqrt','cbrt','abs','exp','log','log2','log10','floor','ceil','round','sign'];
+  for (const n of names) js = js.replace(new RegExp('\\b'+n+'\\b','g'), 'Math.'+n);
+  js = js.replace(/\bpi\b/gi, 'Math.PI').replace(/\be\b/g, 'Math.E');
+  try {
+    return new Function('x', 'with(Math){return ' + js + ';}');
+  } catch (e) {
+    return null;
+  }
+}
+
+function refreshEqList() {
+  const list = $('eqList');
+  list.innerHTML = '';
+  equations.forEach((eq, i) => {
+    const row = document.createElement('div'); row.className = 'eqRow';
+    const c = document.createElement('div'); c.className = 'eqColor'; c.style.background = eq.color;
+    const t = document.createElement('div'); t.className = 'eqText'; t.textContent = 'y = ' + eq.expr;
+    const d = document.createElement('div'); d.className = 'eqDel'; d.textContent = '×';
+    d.addEventListener('click', () => { equations.splice(i,1); refreshEqList(); draw(); });
+    row.appendChild(c); row.appendChild(t); row.appendChild(d);
+    list.appendChild(row);
+  });
+}
+
+function draw() {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  ctx.clearRect(0, 0, W, H);
+  lastBounds = null;
+  const type = $('type').value;
+  const xmin = +$('xmin').value, xmax = +$('xmax').value;
+  const ymin = +$('ymin').value, ymax = +$('ymax').value;
+  const xstep = Math.max(0.1, +$('xstep').value || 1);
+  const ystep = Math.max(0.1, +$('ystep').value || 1);
+  const equalScale = $('equalScale').checked;
+  const showGrid = $('grid').checked;
+  const showXLabels = $('xLabels').checked;
+  const showYLabels = $('yLabels').checked;
+
+  if (type === 'plain') return;
+
+  // Font scales with canvas: bigger graph → bigger labels. Kept light & thin.
+  const fontPx = Math.max(8, Math.min(W, H) / 50);
+  const labelFont = fontPx.toFixed(1) + 'px sans-serif';
+  const pad = Math.max(14, fontPx * 2);
+  const plotW = W - pad*2;
+  const plotH = H - pad*2;
+
+  if (type === 'polar') {
+    const cx = W/2, cy = H/2;
+    const maxR = Math.min(plotW, plotH)/2;
+    if (showGrid) {
+      ctx.strokeStyle = '#e0e0e0'; ctx.lineWidth = 1;
+      for (let r = maxR/5; r <= maxR; r += maxR/5) {
+        ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.stroke();
+      }
+      for (let a = 0; a < 360; a += 30) {
+        const rad = a*Math.PI/180;
+        ctx.beginPath();
+        ctx.moveTo(cx, cy);
+        ctx.lineTo(cx + Math.cos(rad)*maxR, cy + Math.sin(rad)*maxR);
+        ctx.stroke();
+      }
+    }
+    ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(cx-maxR, cy); ctx.lineTo(cx+maxR, cy); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx, cy-maxR); ctx.lineTo(cx, cy+maxR); ctx.stroke();
+    if (showXLabels) {
+      ctx.fillStyle = '#666'; ctx.font = labelFont; ctx.textAlign = 'center';
+      for (let a = 0; a < 360; a += 30) {
+        const rad = a*Math.PI/180;
+        ctx.fillText(a+'°', cx + Math.cos(rad)*(maxR+14), cy + Math.sin(rad)*(maxR+14) + 4);
+      }
+    }
+    const labelMargin = showXLabels ? fontPx * 2 : 4;
+    lastBounds = {
+      x: cx - maxR - labelMargin,
+      y: cy - maxR - labelMargin,
+      w: 2*maxR + 2*labelMargin,
+      h: 2*maxR + 2*labelMargin
+    };
+    return;
+  }
+
+  // Linear axes (four or first) — equal-scale aware
+  const effXmin = type === 'first' ? 0 : xmin;
+  const effYmin = type === 'first' ? 0 : ymin;
+  const dx = (xmax - effXmin), dy = (ymax - effYmin);
+  let sx = plotW / dx, sy = plotH / dy;
+  let plotOffsetX = pad, plotOffsetY = pad;
+  let actualPlotW = plotW, actualPlotH = plotH;
+  if (equalScale) {
+    const s = Math.min(sx, sy);
+    sx = s; sy = s;
+    actualPlotW = dx * s;
+    actualPlotH = dy * s;
+    plotOffsetX = pad + (plotW - actualPlotW) / 2;
+    plotOffsetY = pad + (plotH - actualPlotH) / 2;
+  }
+  const X = x => plotOffsetX + (x - effXmin) * sx;
+  const Y = y => plotOffsetY + actualPlotH - (y - effYmin) * sy;
+
+  const left   = plotOffsetX;
+  const right  = plotOffsetX + actualPlotW;
+  const top    = plotOffsetY;
+  const bottom = plotOffsetY + actualPlotH;
+
+  if (showGrid) {
+    ctx.strokeStyle = '#dcdcdc'; ctx.lineWidth = 0.5;
+    for (let x = Math.ceil(effXmin/xstep)*xstep; x <= xmax + 1e-9; x += xstep) {
+      ctx.beginPath(); ctx.moveTo(X(x), top); ctx.lineTo(X(x), bottom); ctx.stroke();
+    }
+    for (let y = Math.ceil(effYmin/ystep)*ystep; y <= ymax + 1e-9; y += ystep) {
+      ctx.beginPath(); ctx.moveTo(left, Y(y)); ctx.lineTo(right, Y(y)); ctx.stroke();
+    }
+  }
+
+  // Plot equations (clipped to plot area)
+  if (equations.length) {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(left, top, actualPlotW, actualPlotH); ctx.clip();
+    for (const eq of equations) {
+      if (!eq.fn) continue;
+      ctx.strokeStyle = eq.color; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      let started = false;
+      const samples = Math.max(200, Math.floor(actualPlotW * 2));
+      for (let i = 0; i <= samples; i++) {
+        const xv = effXmin + (i / samples) * dx;
+        let yv;
+        try { yv = eq.fn(xv); } catch (_) { yv = NaN; }
+        if (!isFinite(yv)) { started = false; continue; }
+        const px = X(xv), py = Y(yv);
+        if (!started) { ctx.moveTo(px, py); started = true; }
+        else ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  ctx.strokeStyle = '#222'; ctx.lineWidth = 1;
+  const y0 = (effYmin <= 0 && ymax >= 0) ? 0 : effYmin;
+  const x0 = (effXmin <= 0 && xmax >= 0) ? 0 : effXmin;
+  ctx.beginPath(); ctx.moveTo(left, Y(y0)); ctx.lineTo(right, Y(y0)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(X(x0), top); ctx.lineTo(X(x0), bottom); ctx.stroke();
+
+  const arrowLen = Math.max(4, fontPx * 0.6);
+  const arrow = (x1,y1,x2,y2) => {
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    const a = Math.atan2(y2-y1, x2-x1);
+    ctx.lineTo(x1 - Math.cos(a-0.35)*arrowLen, y1 - Math.sin(a-0.35)*arrowLen);
+    ctx.lineTo(x1 - Math.cos(a+0.35)*arrowLen, y1 - Math.sin(a+0.35)*arrowLen);
+    ctx.closePath();
+    ctx.fill();
+  };
+  ctx.fillStyle = '#222';
+  arrow(right, Y(y0), right-arrowLen, Y(y0));
+  arrow(left, Y(y0), left+arrowLen, Y(y0));
+  arrow(X(x0), top, X(x0), top+arrowLen);
+  arrow(X(x0), bottom, X(x0), bottom-arrowLen);
+
+  ctx.font = labelFont;
+  const tick = Math.max(2, fontPx * 0.22);
+  ctx.lineWidth = 0.7;
+  if (showXLabels) {
+    ctx.fillStyle = '#222'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    for (let x = Math.ceil(effXmin/xstep)*xstep; x <= xmax + 1e-9; x += xstep) {
+      if (Math.abs(x) < 1e-9) continue;
+      const xp = X(x), yp = Y(y0);
+      ctx.beginPath(); ctx.moveTo(xp, yp-tick); ctx.lineTo(xp, yp+tick); ctx.strokeStyle = '#222'; ctx.stroke();
+      ctx.fillText(String(+x.toFixed(2)), xp, yp+tick+1);
+    }
+    ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+    ctx.font = 'italic ' + labelFont;
+    ctx.fillText('x', right+3, Y(y0));
+    ctx.font = labelFont;
+  }
+  if (showYLabels) {
+    ctx.fillStyle = '#222'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    for (let y = Math.ceil(effYmin/ystep)*ystep; y <= ymax + 1e-9; y += ystep) {
+      if (Math.abs(y) < 1e-9) continue;
+      const xp = X(x0), yp = Y(y);
+      ctx.beginPath(); ctx.moveTo(xp-tick, yp); ctx.lineTo(xp+tick, yp); ctx.stroke();
+      ctx.fillText(String(+y.toFixed(2)), xp-tick-2, yp);
+    }
+    ctx.textAlign = 'center'; ctx.textBaseline = 'bottom';
+    ctx.font = 'italic ' + labelFont;
+    ctx.fillText('y', X(x0), top-3);
+    ctx.font = labelFont;
+  }
+  // Bounding box for cropped insert: plot area plus label/arrow margins.
+  const yLabelWidth = showYLabels ? fontPx * 3 : 4;
+  const xLabelHeight = showXLabels ? fontPx * 1.8 : 4;
+  const arrowPad = fontPx * 1.5;
+  lastBounds = {
+    x: Math.max(0, plotOffsetX - yLabelWidth),
+    y: Math.max(0, plotOffsetY - arrowPad),
+    w: Math.min(W, actualPlotW + yLabelWidth + arrowPad),
+    h: Math.min(H, actualPlotH + arrowPad + xLabelHeight)
+  };
+}
+
+['type','xmin','xmax','ymin','ymax','xstep','ystep','equalScale','grid','xLabels','yLabels'].forEach(id => {
+  const el = $(id);
+  el.addEventListener('change', draw);
+  el.addEventListener('input', draw);
+});
+$('redraw').addEventListener('click', draw);
+
+$('eqAdd').addEventListener('click', () => {
+  const expr = $('eqInput').value.trim();
+  if (!expr) return;
+  const fn = compileExpr(expr);
+  if (!fn) { alert('Could not parse equation'); return; }
+  equations.push({ expr, color: $('eqColor').value, fn });
+  $('eqInput').value = '';
+  refreshEqList();
+  draw();
+});
+$('eqInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('eqAdd').click(); });
+$('eqClear').addEventListener('click', () => { equations.length = 0; refreshEqList(); draw(); });
+
+function insertOnBoard() {
+  // Crop to lastBounds (in CSS pixels) so the inserted image hugs the graph.
+  const dpr = window.devicePixelRatio || 1;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  const b = lastBounds || { x: 0, y: 0, w: W, h: H };
+  const margin = 4;
+  const sx = Math.max(0, (b.x - margin) * dpr);
+  const sy = Math.max(0, (b.y - margin) * dpr);
+  const sw = Math.min(cv.width  - sx, (b.w + margin*2) * dpr);
+  const sh = Math.min(cv.height - sy, (b.h + margin*2) * dpr);
+  const scale = 2;
+  const out = document.createElement('canvas');
+  out.width  = Math.max(1, Math.floor(sw / dpr * scale));
+  out.height = Math.max(1, Math.floor(sh / dpr * scale));
+  const octx = out.getContext('2d');
+  octx.fillStyle = '#fff'; octx.fillRect(0, 0, out.width, out.height);
+  octx.drawImage(cv, sx, sy, sw, sh, 0, 0, out.width, out.height);
+  const dataUrl = out.toDataURL('image/png');
+  if (window.sankore && window.sankore.addObject) {
+    window.sankore.addObject(dataUrl, 0, 0, 0, 0, false);
+  } else {
+    const w = window.open('', '_blank');
+    if (w) w.document.write('<title>Graph</title><body style="margin:0;background:#222;display:flex;align-items:center;justify-content:center;min-height:100vh;"><img style="background:#fff;padding:8px;" src="' + dataUrl + '"></body>');
+  }
+}
+$('insertBtn').addEventListener('click', insertOnBoard);
+
+new ResizeObserver(resize).observe($('canvasWrap'));
+window.addEventListener('resize', resize);
+window.addEventListener('load', resize);
+let lastW = 0, lastH = 0;
+setInterval(() => {
+  const r = $('canvasWrap').getBoundingClientRect();
+  if (r.width !== lastW || r.height !== lastH) {
+    lastW = r.width; lastH = r.height;
+    resize();
+  }
+}, 250);
+resize();
+setTimeout(resize, 100);
+setTimeout(resize, 500);
+</script>
+</body>
+</html>

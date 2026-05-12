@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Fraction Tiles</title>
+<style>
+  html,body { margin:0; padding:0; width:100%; height:100%; background:#fff; font-family: system-ui, sans-serif; }
+  #root { display:flex; flex-direction:column; height:100%; box-sizing:border-box; padding:8px; gap:8px; }
+  .row { display:flex; align-items:center; gap:8px; }
+  .bar { flex:1; display:flex; height:38px; border:1px solid #333; }
+  .cell { flex:1; border-right:1px solid #333; text-align:center; font-size:13px; line-height:38px; font-weight:500; }
+  .cell:last-child { border-right:none; }
+  .label { width:50px; font-weight:bold; font-size:14px; text-align:right; padding-right:6px; }
+  .c1 { background:#ffdddd; } .c2 { background:#ffe8cc; } .c3 { background:#fff5cc; }
+  .c4 { background:#e6ffd9; } .c5 { background:#cceedd; } .c6 { background:#d9ecff; }
+  .c8 { background:#e6ddff; } .c10 { background:#ffd9f5; } .c12 { background:#dddddd; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+const denoms = [1, 2, 3, 4, 5, 6, 8, 10, 12];
+const root = document.getElementById('root');
+for (const d of denoms) {
+  const row = document.createElement('div'); row.className='row';
+  const lbl = document.createElement('div'); lbl.className='label'; lbl.textContent = '1/' + d;
+  if (d === 1) lbl.textContent = '1';
+  const bar = document.createElement('div'); bar.className='bar';
+  for (let i = 0; i < d; i++) {
+    const c = document.createElement('div'); c.className = 'cell c' + d;
+    c.textContent = '1/' + d;
+    if (d === 1) c.textContent = '1';
+    c.addEventListener('click', () => c.style.opacity = c.style.opacity === '0.25' ? '1' : '0.25');
+    bar.appendChild(c);
+  }
+  row.appendChild(lbl); row.appendChild(bar);
+  root.appendChild(row);
+}
+</script>
+</body>
+</html>

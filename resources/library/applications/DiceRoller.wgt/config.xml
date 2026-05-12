@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets"
+        xmlns:ub="http://uniboard.mnemis.com/widgets"
+        id="http://uniboard.mnemis.com/widgets/diceroller"
+        version="1.0" width="380" height="380" ub:resizable="true">
+  <name>Dice</name>
+  <content src="index.html"/>
+</widget>
