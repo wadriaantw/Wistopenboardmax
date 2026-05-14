@@ -175,13 +175,24 @@ macx {
 
    LIBS += -L/usr/local/lib -lquazip1-qt6.1.4
    INCLUDEPATH += /opt/local/include/QuaZip-Qt6-1.4/quazip
-   
+
    LIBS += -L/opt/local/lib
    INCLUDEPATH += /usr/local/opt/openssl/include
    INCLUDEPATH += /opt/local/include
 
    LIBS        += -L/opt/local/lib -lpoppler
    INCLUDEPATH += /opt/local/include/poppler
+
+   # Homebrew paths (Apple Silicon /opt/homebrew, Intel /usr/local)
+   INCLUDEPATH += /opt/homebrew/include
+   INCLUDEPATH += /opt/homebrew/include/poppler
+   INCLUDEPATH += /opt/homebrew/opt/quazip/include/quazip5
+   LIBS        += -L/opt/homebrew/lib
+   LIBS        += -L/opt/homebrew/opt/quazip/lib
+
+   # Xpdf 3.04 source headers (download to ~/Xpdf/ — sibling of openboard-fork)
+   INCLUDEPATH += $$PWD/../Xpdf
+   INCLUDEPATH += $$(HOME)/Xpdf
 
    QMAKE_MAC_SDK = macosx
    QMAKE_MACOSX_DEPLOYMENT_TARGET = 12
