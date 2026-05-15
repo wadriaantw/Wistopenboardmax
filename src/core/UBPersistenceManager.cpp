@@ -190,7 +190,7 @@ void UBPersistenceManager::createDocumentProxiesStructure(const QFileInfoList &c
 
     QList<std::shared_ptr<UBDocumentProxy>> proxies = futureWatcher.future().results();
 
-    for (auto&& proxy : std::as_const(proxies))
+    for (auto&& proxy : qAsConst(proxies))
     {
         if (proxy)
         {

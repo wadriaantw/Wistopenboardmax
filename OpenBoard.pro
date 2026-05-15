@@ -201,11 +201,17 @@ macx {
    QMAKE_APPLE_DEVICE_ARCHS = x86_64
 
    # Homebrew's current poppler uses C++20 features (std::span, requires,
-   # std::string::starts_with). Override the C++17 default for macOS so the
-   # poppler headers compile.
-   CONFIG -= c++17
-   QMAKE_CXXFLAGS -= -std=gnu++1z
-   QMAKE_CXXFLAGS -= -std=c++17
+   # std::string::starts_with). And Apple's libc++ gates std::as_const /
+   # std::optional behind __cplusplus >= 201703L, which the Qt 5.15.2
+   # mkspec's "-std=gnu++1z" does NOT define. We must force gnu++20.
+   # Using $$replace because CONFIG -= and QMAKE_CXXFLAGS -= don't reliably
+   # strip the flag once the mkspec has appended it.
+   CONFIG -= c++17 c++14 c++11
+   QMAKE_CXXFLAGS = $$replace(QMAKE_CXXFLAGS, "-std=gnu\\+\\+1z", "")
+   QMAKE_CXXFLAGS = $$replace(QMAKE_CXXFLAGS, "-std=c\\+\\+1z", "")
+   QMAKE_CXXFLAGS = $$replace(QMAKE_CXXFLAGS, "-std=gnu\\+\\+17", "")
+   QMAKE_CXXFLAGS = $$replace(QMAKE_CXXFLAGS, "-std=c\\+\\+17", "")
+   QMAKE_CXXFLAGS_CXX11 = -std=gnu++20
    QMAKE_CXXFLAGS += -std=gnu++20
    #QMAKE_APPLE_DEVICE_ARCHS = x86_64 arm64
    #QMAKE_APPLE_DEVICE_ARCHS = arm64
