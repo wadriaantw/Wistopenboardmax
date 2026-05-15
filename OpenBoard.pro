@@ -199,6 +199,14 @@ macx {
 
    # Qt 5.15.2 is Intel-only; force x86_64 (Rosetta runs it on Apple Silicon)
    QMAKE_APPLE_DEVICE_ARCHS = x86_64
+
+   # Homebrew's current poppler uses C++20 features (std::span, requires,
+   # std::string::starts_with). Override the C++17 default for macOS so the
+   # poppler headers compile.
+   CONFIG -= c++17
+   QMAKE_CXXFLAGS -= -std=gnu++1z
+   QMAKE_CXXFLAGS -= -std=c++17
+   QMAKE_CXXFLAGS += -std=gnu++20
    #QMAKE_APPLE_DEVICE_ARCHS = x86_64 arm64
    #QMAKE_APPLE_DEVICE_ARCHS = arm64
 
