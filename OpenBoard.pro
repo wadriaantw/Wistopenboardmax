@@ -173,17 +173,30 @@ macx {
    LIBS += -lcrypto
 
 
-   # OpenSSL (Homebrew Apple Silicon, fallback to Intel paths)
+   # We build OpenBoard as x86_64 (Qt 5.15.2 is Intel-only), so every
+   # dependency library must also be x86_64. On Apple Silicon, the default
+   # Homebrew at /opt/homebrew installs arm64-only binaries, which the
+   # linker rejects with "ignoring file ... found architecture 'arm64'".
+   # The solution is to install Intel Homebrew under Rosetta — it lives at
+   # /usr/local — and pull poppler / ffmpeg / openssl from there.
+   #
+   # One-time setup on the build machine:
+   #   arch -x86_64 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+   #   arch -x86_64 /usr/local/bin/brew install ffmpeg@4 poppler openssl pkg-config
+
+   # Intel Homebrew (x86_64) — primary library source
+   INCLUDEPATH += /usr/local/include
+   INCLUDEPATH += /usr/local/include/poppler
    INCLUDEPATH += /usr/local/opt/openssl/include
-   INCLUDEPATH += /opt/homebrew/opt/openssl/include
+   INCLUDEPATH += /usr/local/opt/ffmpeg@4/include
+   LIBS        += -L/usr/local/lib
+   LIBS        += -L/usr/local/opt/openssl/lib
+   LIBS        += -L/usr/local/opt/ffmpeg@4/lib
 
-   # Homebrew paths (Apple Silicon /opt/homebrew, Intel /usr/local).
-   INCLUDEPATH += /opt/homebrew/include
-   INCLUDEPATH += /opt/homebrew/include/poppler
-   LIBS        += -L/opt/homebrew/lib
-
-   # Poppler from Homebrew
+   # Poppler + OpenSSL + FFmpeg (all from Intel Homebrew, x86_64)
    LIBS        += -lpoppler
+   LIBS        += -lssl
+   LIBS        += -lavcodec -lavformat -lavutil -lswscale -lswresample
 
    # QuaZip Qt5 built from source (tag v1.3) installed to ~/quazip-qt5-install
    # (a stable user-home location that doesn't conflict with Homebrew's Qt6
