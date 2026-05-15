@@ -26,6 +26,8 @@
 
 #include "UBDisplayManager.h"
 
+#include <utility>  // std::as_const
+
 #include "frameworks/UBPlatformUtils.h"
 
 #include "core/UBApplication.h"

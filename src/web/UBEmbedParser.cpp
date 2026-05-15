@@ -27,6 +27,8 @@
 
 #include "UBEmbedParser.h"
 
+#include <utility>  // std::as_const
+
 #include <QRegularExpression>
 #include <QStringList>
 #include <QDomAttr>

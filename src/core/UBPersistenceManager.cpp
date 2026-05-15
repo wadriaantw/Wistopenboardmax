@@ -29,6 +29,8 @@
 #include "UBPersistenceManager.h"
 #include "gui/UBMainWindow.h"
 
+#include <utility>  // std::as_const
+
 #include <QtXml>
 #include <QVariant>
 #include <QDomDocument>

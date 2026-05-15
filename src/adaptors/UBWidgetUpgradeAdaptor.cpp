@@ -34,6 +34,8 @@
 #include <QCryptographicHash>
 #include <QDomDocument>
 
+#include <utility>  // std::as_const
+
 #include "core/memcheck.h"
 
 UBWidgetUpgradeAdaptor::UBWidgetUpgradeAdaptor()

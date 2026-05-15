@@ -29,6 +29,8 @@
 
 #include "UBPreferencesController.h"
 
+#include <utility>  // std::as_const
+
 #include "UBSettings.h"
 #include "UBApplication.h"
 

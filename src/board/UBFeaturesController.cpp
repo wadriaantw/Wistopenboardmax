@@ -27,6 +27,8 @@
 
 
 
+#include <utility>  // std::as_const
+
 #include <QGraphicsItem>
 #include <QPointF>
 #include <QtGui>
