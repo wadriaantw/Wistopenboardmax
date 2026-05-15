@@ -178,20 +178,20 @@ macx {
    INCLUDEPATH += /opt/homebrew/opt/openssl/include
 
    # Homebrew paths (Apple Silicon /opt/homebrew, Intel /usr/local).
-   # Include /opt/local/* fallbacks for MacPorts users but make Homebrew
-   # the primary so the linker doesn't fail when MacPorts isn't installed.
    INCLUDEPATH += /opt/homebrew/include
    INCLUDEPATH += /opt/homebrew/include/poppler
-   INCLUDEPATH += /opt/homebrew/opt/quazip/include/quazip5
    LIBS        += -L/opt/homebrew/lib
-   LIBS        += -L/opt/homebrew/opt/quazip/lib
 
    # Poppler from Homebrew
    LIBS        += -lpoppler
 
-   # QuaZip Qt5 built from source (tag v1.3) and installed to the
-   # /opt/homebrew/opt/quazip prefix. Use the explicit Qt5 library name.
-   LIBS        += -lQuaZip-Qt5-1.3
+   # QuaZip Qt5 built from source (tag v1.3) installed to ~/quazip-qt5-install
+   # (a stable user-home location that doesn't conflict with Homebrew's Qt6
+   # quazip or get wiped from /tmp). The HTML build guide walks through this.
+   INCLUDEPATH += $$(HOME)/quazip-qt5-install/include/QuaZip-Qt5-1.3
+   INCLUDEPATH += $$(HOME)/quazip-qt5-install/include/QuaZip-Qt5-1.3/quazip
+   LIBS        += -L$$(HOME)/quazip-qt5-install/lib
+   LIBS        += -lQuaZip-Qt5
 
    # Xpdf 3.04 source headers (download to ~/Xpdf/ — sibling of openboard-fork)
    INCLUDEPATH += $$PWD/../Xpdf
