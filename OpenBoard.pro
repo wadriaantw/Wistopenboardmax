@@ -193,6 +193,14 @@ macx {
    LIBS        += -L$$(HOME)/quazip-qt5-install/lib
    LIBS        += -lquazip1-qt5
 
+   # Qt 5.15.2's macOS mkspec still references the AGL framework, which
+   # Apple removed in macOS 10.14. Strip it from every link-flag variable
+   # so the linker doesn't fail with "framework 'AGL' not found".
+   QMAKE_LIBS_OPENGL    = $$replace(QMAKE_LIBS_OPENGL,    "-framework AGL", "")
+   QMAKE_LFLAGS         = $$replace(QMAKE_LFLAGS,         "-framework AGL", "")
+   QMAKE_LFLAGS_RELEASE = $$replace(QMAKE_LFLAGS_RELEASE, "-framework AGL", "")
+   LIBS                 = $$replace(LIBS,                 "-framework AGL", "")
+
    # Xpdf 3.04 source headers (download to ~/Xpdf/ — sibling of openboard-fork)
    INCLUDEPATH += $$PWD/../Xpdf
    INCLUDEPATH += $$(HOME)/Xpdf
