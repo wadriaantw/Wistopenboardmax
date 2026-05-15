@@ -197,8 +197,9 @@ macx {
    QMAKE_MAC_SDK = macosx
    QMAKE_MACOSX_DEPLOYMENT_TARGET = 12
 
-   # For universal builds
-   QMAKE_APPLE_DEVICE_ARCHS=x86_64 arm64
+   # Qt 5.15.2 is Intel-only; force x86_64 (Rosetta runs it on Apple Silicon)
+   QMAKE_APPLE_DEVICE_ARCHS = x86_64
+   #QMAKE_APPLE_DEVICE_ARCHS = x86_64 arm64
    #QMAKE_APPLE_DEVICE_ARCHS = arm64
 
    QMAKE_CXXFLAGS += -Wno-overloaded-virtual
