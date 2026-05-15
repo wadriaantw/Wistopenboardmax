@@ -193,13 +193,13 @@ macx {
    LIBS        += -L$$(HOME)/quazip-qt5-install/lib
    LIBS        += -lquazip1-qt5
 
-   # Qt 5.15.2's macOS mkspec still references the AGL framework, which
-   # Apple removed in macOS 10.14. Strip it from every link-flag variable
-   # so the linker doesn't fail with "framework 'AGL' not found".
-   QMAKE_LIBS_OPENGL    = $$replace(QMAKE_LIBS_OPENGL,    "-framework AGL", "")
-   QMAKE_LFLAGS         = $$replace(QMAKE_LFLAGS,         "-framework AGL", "")
-   QMAKE_LFLAGS_RELEASE = $$replace(QMAKE_LFLAGS_RELEASE, "-framework AGL", "")
-   LIBS                 = $$replace(LIBS,                 "-framework AGL", "")
+   # NOTE: Qt 5.15.2's macOS mkspec / .prl files reference the AGL
+   # framework, which Apple removed in macOS 10.14. The fix is one-time
+   # on your machine — patch every Qt .prl file:
+   #   sed -i.bak 's/-framework AGL //g' \
+   #     ~/Qt/5.15.2/clang_64/lib/Qt*.framework/Qt*.prl
+   # qmake can't strip it from inside this .pro file because the .prl
+   # files are read after .pro evaluation finishes.
 
    # Xpdf 3.04 source headers (download to ~/Xpdf/ — sibling of openboard-fork)
    INCLUDEPATH += $$PWD/../Xpdf
