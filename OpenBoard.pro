@@ -202,17 +202,19 @@ macx {
 
    # Homebrew's current poppler uses C++20 features (std::span, requires,
    # std::string::starts_with). And Apple's libc++ gates std::as_const /
-   # std::optional behind __cplusplus >= 201703L, which the Qt 5.15.2
-   # mkspec's "-std=gnu++1z" does NOT define. We must force gnu++20.
-   # Using $$replace because CONFIG -= and QMAKE_CXXFLAGS -= don't reliably
-   # strip the flag once the mkspec has appended it.
+   # std::optional behind __cplusplus >= 201703L. We must force gnu++20.
+   # qmake appends -std=gnu++11 last when CONFIG drops higher standards,
+   # so strip EVERY -std=... from all CXXFLAGS variables, then put gnu++20
+   # at the very end of QMAKE_CXXFLAGS_RELEASE (which is appended last).
    CONFIG -= c++17 c++14 c++11
-   QMAKE_CXXFLAGS = $$replace(QMAKE_CXXFLAGS, "-std=gnu\\+\\+1z", "")
-   QMAKE_CXXFLAGS = $$replace(QMAKE_CXXFLAGS, "-std=c\\+\\+1z", "")
-   QMAKE_CXXFLAGS = $$replace(QMAKE_CXXFLAGS, "-std=gnu\\+\\+17", "")
-   QMAKE_CXXFLAGS = $$replace(QMAKE_CXXFLAGS, "-std=c\\+\\+17", "")
-   QMAKE_CXXFLAGS_CXX11 = -std=gnu++20
-   QMAKE_CXXFLAGS += -std=gnu++20
+   QMAKE_CXXFLAGS         = $$replace(QMAKE_CXXFLAGS,         "-std=[^ ]+", "")
+   QMAKE_CXXFLAGS_RELEASE = $$replace(QMAKE_CXXFLAGS_RELEASE, "-std=[^ ]+", "")
+   QMAKE_CXXFLAGS_DEBUG   = $$replace(QMAKE_CXXFLAGS_DEBUG,   "-std=[^ ]+", "")
+   QMAKE_CXXFLAGS_CXX11   = -std=gnu++20
+   QMAKE_CXXFLAGS_CXX14   = -std=gnu++20
+   QMAKE_CXXFLAGS_CXX17   = -std=gnu++20
+   QMAKE_CXXFLAGS_RELEASE += -std=gnu++20
+   QMAKE_CXXFLAGS_DEBUG   += -std=gnu++20
    #QMAKE_APPLE_DEVICE_ARCHS = x86_64 arm64
    #QMAKE_APPLE_DEVICE_ARCHS = arm64
 
