@@ -191,7 +191,7 @@ macx {
    INCLUDEPATH += $$(HOME)/quazip-qt5-install/include/QuaZip-Qt5-1.3
    INCLUDEPATH += $$(HOME)/quazip-qt5-install/include/QuaZip-Qt5-1.3/quazip
    LIBS        += -L$$(HOME)/quazip-qt5-install/lib
-   LIBS        += -lQuaZip-Qt5
+   LIBS        += -lquazip1-qt5
 
    # Xpdf 3.04 source headers (download to ~/Xpdf/ — sibling of openboard-fork)
    INCLUDEPATH += $$PWD/../Xpdf
