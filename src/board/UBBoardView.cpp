@@ -307,6 +307,21 @@ std::shared_ptr<UBGraphicsScene> UBBoardView::scene ()
 
 void UBBoardView::keyPressEvent (QKeyEvent *event)
 {
+    // Space-hold pan: arm the pan flag on the FIRST Space press (ignore
+    // auto-repeats). Don't trigger next-scene here — that happens on key
+    // release iff no drag occurred while Space was held.
+    if (event->key() == Qt::Key_Space && !event->isAutoRepeat()
+        && (event->modifiers() == Qt::NoModifier || event->modifiers() == Qt::KeypadModifier))
+    {
+        if (!mSpaceHeld) {
+            mSpaceHeld = true;
+            mSpaceUsedForPan = false;
+            viewport()->setCursor(Qt::OpenHandCursor);
+        }
+        event->accept();
+        return;
+    }
+
     // send to the scene anyway
     QApplication::sendEvent (scene().get(), event);
 
@@ -329,7 +344,6 @@ void UBBoardView::keyPressEvent (QKeyEvent *event)
             case Qt::Key_Down:
             case Qt::Key_PageDown:
             case Qt::Key_Right:
-            case Qt::Key_Space:
             {
                 mController->nextScene ();
                 break;
@@ -405,6 +419,28 @@ void UBBoardView::keyPressEvent (QKeyEvent *event)
             }
         }
     }
+}
+
+
+void UBBoardView::keyReleaseEvent (QKeyEvent *event)
+{
+    // Counterpart to Space-hold pan in keyPressEvent. If Space is released
+    // and no drag happened while it was held, treat it as a quick tap and
+    // fire the legacy next-scene action. Otherwise the user finished a pan.
+    if (event->key() == Qt::Key_Space && !event->isAutoRepeat() && mSpaceHeld)
+    {
+        const bool wasPan = mSpaceUsedForPan;
+        mSpaceHeld = false;
+        mSpaceUsedForPan = false;
+        viewport()->unsetCursor();
+        if (!wasPan) {
+            mController->nextScene();
+        }
+        event->accept();
+        return;
+    }
+
+    QGraphicsView::keyReleaseEvent(event);
 }
 
 
@@ -1432,6 +1468,16 @@ void UBBoardView::longPressEvent()
 
 void UBBoardView::mousePressEvent (QMouseEvent *event)
 {
+    // Space-hold pan: if Space is held when the user presses the mouse,
+    // start a pan instead of whatever the active tool would normally do.
+    if (mSpaceHeld && event->button() == Qt::LeftButton) {
+        mSpaceUsedForPan = true;
+        mSpacePanLastViewPos = event->pos();
+        viewport()->setCursor(Qt::ClosedHandCursor);
+        event->accept();
+        return;
+    }
+
     // Finger touches synthesize mouse events. We usually swallow them (touch is handled
     // in event()), but allow pass-through when the target is an interactive widget item,
     // or when the active tool is Zoom/Hand (so finger taps still work with those tools).
@@ -1642,6 +1688,17 @@ void UBBoardView::mousePressEvent (QMouseEvent *event)
 
 void UBBoardView::mouseMoveEvent (QMouseEvent *event)
 {
+    // Space-hold pan: translate the view by the cursor delta. Same scrollbar
+    // mechanism used by the touch and wheel pan paths.
+    if (mSpaceHeld && (event->buttons() & Qt::LeftButton)) {
+        const QPoint delta = event->pos() - mSpacePanLastViewPos;
+        mSpacePanLastViewPos = event->pos();
+        horizontalScrollBar()->setValue(horizontalScrollBar()->value() - delta.x());
+        verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
+        event->accept();
+        return;
+    }
+
     if (event->source() == Qt::MouseEventSynthesizedBySystem
         || event->source() == Qt::MouseEventSynthesizedByQt) {
         bool overWidget = false;
@@ -1841,6 +1898,14 @@ void UBBoardView::movingItemDestroyed(QObject*)
 
 void UBBoardView::mouseReleaseEvent (QMouseEvent *event)
 {
+    // Space-hold pan: end the pan grip but keep the "open hand" cursor while
+    // Space is still held — releasing Space restores the normal cursor.
+    if (mSpaceHeld && event->button() == Qt::LeftButton) {
+        viewport()->setCursor(Qt::OpenHandCursor);
+        event->accept();
+        return;
+    }
+
     if (event->source() == Qt::MouseEventSynthesizedBySystem
         || event->source() == Qt::MouseEventSynthesizedByQt) {
         bool overWidget = false;

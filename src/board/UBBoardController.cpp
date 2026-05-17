@@ -1491,15 +1491,14 @@ void UBBoardController::deleteScene(int nIndex)
 }
 
 
-// Helper: ask the user before doing something destructive on the page.
-static bool confirmErase(const QString& detail)
+// Helper: previously asked the user before doing something destructive on
+// the page. Removed per user request — the erase menu already exposes four
+// explicit choices (items, annotations, background, all), so the extra
+// "are you sure?" dialog is redundant. Kept as an inline no-op so call
+// sites and translations don't have to change.
+static bool confirmErase(const QString& /*detail*/)
 {
-    return QMessageBox::question(
-        UBApplication::mainWindow,
-        QObject::tr("Erase"),
-        QObject::tr("This will %1 on the current page. This cannot be undone with autosave.\n\nContinue?").arg(detail),
-        QMessageBox::Yes | QMessageBox::No,
-        QMessageBox::No) == QMessageBox::Yes;
+    return true;
 }
 
 void UBBoardController::clearScene()

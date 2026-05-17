@@ -98,6 +98,7 @@ protected:
     virtual bool event (QEvent * e);
 
     virtual void keyPressEvent(QKeyEvent *event);
+    virtual void keyReleaseEvent(QKeyEvent *event);
     virtual void tabletEvent(QTabletEvent * event);
     virtual void mouseDoubleClickEvent(QMouseEvent *event);
     virtual void mousePressEvent(QMouseEvent *event);
@@ -234,6 +235,13 @@ private:
     int mTouchPinchId1;              // finger ids locked at pinch start (-1 = none)
     int mTouchPinchId2;
     bool mTouchOverWidget;           // current touch sequence is on an interactive widget
+
+    // Space-hold panning: hold Space to drag the board around in any tool.
+    // If Space is pressed and released with no mouse drag in between, fall
+    // back to the legacy behaviour (Space → next scene).
+    bool mSpaceHeld{false};
+    bool mSpaceUsedForPan{false};
+    QPoint mSpacePanLastViewPos;
 
     // floating page navigation bar (top-center pill: ◄ Page X / Y ►)
     class QWidget *mPageNavBar{nullptr};
