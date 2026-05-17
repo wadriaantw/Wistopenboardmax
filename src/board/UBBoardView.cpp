@@ -433,6 +433,38 @@ bool UBBoardView::event (QEvent * e)
         }
     }
 
+    // macOS trackpad: native pinch/zoom gestures arrive as QNativeGestureEvent,
+    // NOT as QTouchEvent. Without this handler, pinch zoom never works on a
+    // MacBook trackpad regardless of the selected tool (Pen / Hand / etc).
+    // We apply the zoom factor centered on the cursor position. Works in every
+    // tool mode — fingers on the trackpad never get interpreted as drawing.
+    if (e->type() == QEvent::NativeGesture) {
+        QNativeGestureEvent *nge = static_cast<QNativeGestureEvent*>(e);
+        if (nge->gestureType() == Qt::ZoomNativeGesture) {
+            // value() is the incremental zoom delta from the trackpad
+            // (typically small fractions like 0.02 per gesture tick).
+            qreal factor = 1.0 + nge->value();
+            if (factor < 0.5) factor = 0.5;
+            if (factor > 2.0) factor = 2.0;
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+            QPointF vpPos = nge->position();
+#else
+            QPointF vpPos = nge->pos();
+#endif
+            QPointF scenePivot = mapToScene(vpPos.toPoint());
+            mController->zoom(factor, scenePivot);
+            e->accept();
+            return true;
+        }
+        if (nge->gestureType() == Qt::SmartZoomNativeGesture) {
+            // Two-finger double-tap on trackpad → toggle zoom to fit.
+            mController->zoom(nge->value() > 0 ? 2.0 : 0.5,
+                              mapToScene(viewport()->rect().center()));
+            e->accept();
+            return true;
+        }
+    }
+
     // finger-pan and pinch-zoom: route touch points to scroll/zoom instead of drawing
     if (e->type() == QEvent::TouchBegin || e->type() == QEvent::TouchUpdate || e->type() == QEvent::TouchEnd) {
         QTouchEvent *te = static_cast<QTouchEvent*>(e);
@@ -2159,6 +2191,23 @@ void UBBoardView::wheelEvent (QWheelEvent *wheelEvent)
         wheelEvent->accept();
         return;
     }
+
+#ifdef Q_OS_OSX
+    // macOS trackpad two-finger pan: events arrive with non-zero pixelDelta
+    // (a mouse wheel uses angleDelta only). Pan the board in any tool mode
+    // by shifting the scrollbar values directly — the same mechanism the
+    // touch-pan path uses. Without this, two-finger pan does nothing because
+    // the always-off scrollbars have no visible range when content fits.
+    if (wheelEvent->modifiers() == Qt::NoModifier
+        && !wheelEvent->pixelDelta().isNull())
+    {
+        const QPoint d = wheelEvent->pixelDelta();
+        horizontalScrollBar()->setValue(horizontalScrollBar()->value() - d.x());
+        verticalScrollBar()->setValue(verticalScrollBar()->value() - d.y());
+        wheelEvent->accept();
+        return;
+    }
+#endif
 
     // Zoom in/out when Ctrl is pressed
     if (wheelEvent->modifiers() == Qt::ControlModifier && wheelEvent->angleDelta().x() == 0)

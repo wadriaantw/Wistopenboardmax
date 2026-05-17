@@ -69,6 +69,20 @@ UBMainWindow::UBMainWindow(QWidget *parent, Qt::WindowFlags flags)
     setCentralWidget(centralWidget);
 
 #ifdef Q_OS_OSX
+    // MacBooks with a camera notch hide the top toolbar behind the notch.
+    // Insert a fixed-height spacer above all toolbars (via setMenuWidget,
+    // which QMainWindow lays out *above* the toolbar area) so the toolbar
+    // is fully visible. 38 px clears the notch on every current MacBook
+    // model; non-notch Macs just see a small matching strip at the top.
+    {
+        QWidget* notchSpacer = new QWidget(this);
+        notchSpacer->setFixedHeight(38);
+        notchSpacer->setAttribute(Qt::WA_StyledBackground, true);
+        notchSpacer->setStyleSheet("background-color: #1d1d1f;");
+        notchSpacer->setObjectName("macNotchSpacer");
+        setMenuWidget(notchSpacer);
+    }
+
     actionPreferences->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Comma));
     actionQuit->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_Q));
 #elif defined(Q_OS_WIN)
