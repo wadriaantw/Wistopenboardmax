@@ -471,6 +471,19 @@ bool UBBoardView::viewportEvent(QEvent *event)
     }
 #endif
 
+    // Smartboard / touchscreen QTouchEvents arrive at the viewport. The full
+    // pinch / one-finger-pan / two-finger-pinch logic lives in our event()
+    // override below, but on macOS the bubble-up path from viewport → view
+    // isn't reliable, so touch events never reach event() and the board
+    // ignores all finger input. Forward them explicitly here. On Windows /
+    // Linux this just shortcuts the same viewport → scene → bubble-up chain
+    // — same end result.
+    if (event->type() == QEvent::TouchBegin
+        || event->type() == QEvent::TouchUpdate
+        || event->type() == QEvent::TouchEnd) {
+        return this->event(event);
+    }
+
     return QGraphicsView::viewportEvent(event);
 }
 
