@@ -99,6 +99,7 @@ protected:
 
     virtual void keyPressEvent(QKeyEvent *event);
     virtual void keyReleaseEvent(QKeyEvent *event);
+    virtual bool viewportEvent(QEvent *event);
     virtual void tabletEvent(QTabletEvent * event);
     virtual void mouseDoubleClickEvent(QMouseEvent *event);
     virtual void mousePressEvent(QMouseEvent *event);

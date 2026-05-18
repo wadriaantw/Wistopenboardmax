@@ -422,6 +422,59 @@ void UBBoardView::keyPressEvent (QKeyEvent *event)
 }
 
 
+// Catch macOS trackpad gestures at the viewport level.
+//
+// QNativeGestureEvent (pinch, smart-zoom) and QWheelEvent with pixelDelta
+// (two-finger pan) are delivered to the *viewport* child widget — they
+// don't reach UBBoardView::event() unless the viewport ignores them, which
+// it does inconsistently. Handling them here in viewportEvent makes the
+// trackpad work in every tool, including Pen.
+bool UBBoardView::viewportEvent(QEvent *event)
+{
+    if (event->type() == QEvent::NativeGesture) {
+        QNativeGestureEvent *nge = static_cast<QNativeGestureEvent*>(event);
+        if (nge->gestureType() == Qt::ZoomNativeGesture) {
+            qreal factor = 1.0 + nge->value();
+            if (factor < 0.5) factor = 0.5;
+            if (factor > 2.0) factor = 2.0;
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+            QPointF vpPos = nge->position();
+#else
+            QPointF vpPos = nge->pos();
+#endif
+            mController->zoom(factor, mapToScene(vpPos.toPoint()));
+            event->accept();
+            return true;
+        }
+        if (nge->gestureType() == Qt::SmartZoomNativeGesture) {
+            mController->zoom(nge->value() > 0 ? 2.0 : 0.5,
+                              mapToScene(viewport()->rect().center()));
+            event->accept();
+            return true;
+        }
+    }
+
+#ifdef Q_OS_OSX
+    // Trackpad two-finger pan delivers QWheelEvent with non-zero pixelDelta.
+    // Catch it here so it works in every tool — drives the scrollbars
+    // directly because the always-off scrollbars have no visible range to
+    // ride otherwise.
+    if (event->type() == QEvent::Wheel) {
+        QWheelEvent *we = static_cast<QWheelEvent*>(event);
+        if (we->modifiers() == Qt::NoModifier && !we->pixelDelta().isNull()) {
+            const QPoint d = we->pixelDelta();
+            horizontalScrollBar()->setValue(horizontalScrollBar()->value() - d.x());
+            verticalScrollBar()->setValue(verticalScrollBar()->value() - d.y());
+            we->accept();
+            return true;
+        }
+    }
+#endif
+
+    return QGraphicsView::viewportEvent(event);
+}
+
+
 void UBBoardView::keyReleaseEvent (QKeyEvent *event)
 {
     // Counterpart to Space-hold pan in keyPressEvent. If Space is released
