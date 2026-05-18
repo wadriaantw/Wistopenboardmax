@@ -32,6 +32,7 @@
 #include <QtGlobal>
 #include <QtGui>
 #include <QtXml>
+#include <QTimer>
 #include <QListView>
 #include <QToolButton>
 #include <QLabel>
@@ -189,6 +190,15 @@ void UBBoardView::init ()
     mTouchPanStart = QPointF();
     mTouchPanId = -1;
     mTouchPinchStartDist = 0.0;
+
+    // Long-press-to-pan timer (macOS smartboard workaround). 300 ms is the
+    // sweet spot: long enough that quick draw strokes aren't intercepted,
+    // short enough to feel responsive when you actually want to pan.
+    mLongPressPanTimer = new QTimer(this);
+    mLongPressPanTimer->setSingleShot(true);
+    mLongPressPanTimer->setInterval(300);
+    connect(mLongPressPanTimer, &QTimer::timeout,
+            this, &UBBoardView::handleLongPressTimeout);
     mTouchPinchId1 = -1;
     mTouchPinchId2 = -1;
     mTouchOverWidget = false;
@@ -500,6 +510,41 @@ bool UBBoardView::viewportEvent(QEvent *event)
     }
 
     return QGraphicsView::viewportEvent(event);
+}
+
+
+// ---- macOS smartboard long-press-to-pan helpers ---------------------------
+
+void UBBoardView::handleLongPressTimeout()
+{
+    // Fired 300 ms after press if the finger hasn't moved. Drop the deferred
+    // press (no draw stroke ever starts) and switch to pan mode until the
+    // mouse is released.
+    if (!mLongPressArmed) return;
+    mLongPressArmed = false;
+    mLongPressPanning = true;
+    mLongPressButton = Qt::NoButton; // we no longer need to replay the press
+    viewport()->setCursor(Qt::ClosedHandCursor);
+}
+
+void UBBoardView::dispatchDeferredPress()
+{
+    // Replay the stashed press through our own mousePressEvent so the normal
+    // drawing pipeline picks it up. mLongPressDispatching guards against the
+    // long-press intercept catching this synthetic event.
+    if (mLongPressButton == Qt::NoButton) return;
+    QMouseEvent press(QEvent::MouseButtonPress,
+                      mLongPressLocalPos,
+                      mLongPressScreenPos,
+                      mLongPressScreenPos,
+                      mLongPressButton,
+                      mLongPressButtons,
+                      mLongPressModifiers,
+                      mLongPressSource);
+    mLongPressDispatching = true;
+    this->mousePressEvent(&press);
+    mLongPressDispatching = false;
+    mLongPressButton = Qt::NoButton;
 }
 
 
@@ -1559,6 +1604,40 @@ void UBBoardView::mousePressEvent (QMouseEvent *event)
         return;
     }
 
+#ifdef Q_OS_OSX
+    // Long-press-to-pan (smartboard workaround): macOS external touchscreens
+    // don't expose multi-touch, so we let the user pan with a single finger
+    // by holding still ~300 ms before dragging. Defer the press; if the user
+    // moves within the window it dispatches as a normal draw, if they hold
+    // still the timer fires and we enter pan mode.
+    if (!mLongPressDispatching
+        && event->button() == Qt::LeftButton
+        && !mSpaceHeld)
+    {
+        UBStylusTool::Enum tool =
+            (UBStylusTool::Enum)UBDrawingController::drawingController()->stylusTool();
+        const bool isDrawingTool = (tool == UBStylusTool::Pen
+                                    || tool == UBStylusTool::Marker
+                                    || tool == UBStylusTool::Line
+                                    || tool == UBStylusTool::Eraser);
+        if (isDrawingTool) {
+            mLongPressLocalPos = event->localPos();
+            mLongPressScreenPos = event->screenPos();
+            mLongPressButton = event->button();
+            mLongPressButtons = event->buttons();
+            mLongPressModifiers = event->modifiers();
+            mLongPressSource = event->source();
+            mLongPressStartViewPos = event->pos();
+            mLongPressLastViewPos = event->pos();
+            mLongPressArmed = true;
+            mLongPressPanning = false;
+            mLongPressPanTimer->start();
+            event->accept();
+            return;
+        }
+    }
+#endif
+
     // Finger touches synthesize mouse events. We usually swallow them (touch is handled
     // in event()), but allow pass-through when the target is an interactive widget item,
     // or when the active tool is Zoom/Hand (so finger taps still work with those tools).
@@ -1780,6 +1859,34 @@ void UBBoardView::mouseMoveEvent (QMouseEvent *event)
         return;
     }
 
+#ifdef Q_OS_OSX
+    // Long-press-to-pan: in pan phase, drive the scrollbars and consume.
+    if (mLongPressPanning && (event->buttons() & Qt::LeftButton)) {
+        const QPoint delta = event->pos() - mLongPressLastViewPos;
+        mLongPressLastViewPos = event->pos();
+        horizontalScrollBar()->setValue(horizontalScrollBar()->value() - delta.x());
+        verticalScrollBar()->setValue(verticalScrollBar()->value() - delta.y());
+        event->accept();
+        return;
+    }
+    // Long-press-to-pan: in armed phase (timer still pending), watch for
+    // movement. Past the 8-pixel slop threshold = user is drawing, not
+    // long-pressing. Dispatch the deferred press and fall through.
+    if (mLongPressArmed) {
+        const QPoint d = event->pos() - mLongPressStartViewPos;
+        if (qAbs(d.x()) > 8 || qAbs(d.y()) > 8) {
+            mLongPressArmed = false;
+            mLongPressPanTimer->stop();
+            dispatchDeferredPress();
+            // Continue to normal mouseMoveEvent flow below.
+        } else {
+            // Below slop threshold, still waiting on the timer. Eat the move.
+            event->accept();
+            return;
+        }
+    }
+#endif
+
     if (event->source() == Qt::MouseEventSynthesizedBySystem
         || event->source() == Qt::MouseEventSynthesizedByQt) {
         bool overWidget = false;
@@ -1986,6 +2093,25 @@ void UBBoardView::mouseReleaseEvent (QMouseEvent *event)
         event->accept();
         return;
     }
+
+#ifdef Q_OS_OSX
+    // Long-press-to-pan finished — restore the cursor and consume the release.
+    if (mLongPressPanning) {
+        mLongPressPanning = false;
+        viewport()->unsetCursor();
+        event->accept();
+        return;
+    }
+    // Released before either the timer fired or the slop threshold was
+    // crossed: it was a quick tap. Replay the deferred press so the normal
+    // pipeline gets a press+release pair (single click / dot stroke).
+    if (mLongPressArmed) {
+        mLongPressArmed = false;
+        mLongPressPanTimer->stop();
+        dispatchDeferredPress();
+        // Fall through to normal release handling.
+    }
+#endif
 
     if (event->source() == Qt::MouseEventSynthesizedBySystem
         || event->source() == Qt::MouseEventSynthesizedByQt) {

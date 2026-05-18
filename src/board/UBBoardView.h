@@ -244,6 +244,28 @@ private:
     bool mSpaceUsedForPan{false};
     QPoint mSpacePanLastViewPos;
 
+    // macOS smartboard workaround: hold finger still for ~300 ms in a drawing
+    // tool to enter pan mode (single-finger pan), since external touchscreens
+    // on macOS don't expose multi-touch. Quick tap-and-drag still draws.
+    class QTimer *mLongPressPanTimer{nullptr};
+    bool mLongPressArmed{false};        // press deferred, waiting on timer or first move
+    bool mLongPressPanning{false};      // timer fired, panning in progress
+    bool mLongPressDispatching{false};  // re-entrancy guard while replaying the press
+    QPoint mLongPressStartViewPos;
+    QPoint mLongPressLastViewPos;
+    QPointF mLongPressLocalPos;
+    QPointF mLongPressScreenPos;
+    Qt::MouseButton mLongPressButton{Qt::NoButton};
+    Qt::MouseButtons mLongPressButtons{Qt::NoButton};
+    Qt::KeyboardModifiers mLongPressModifiers{Qt::NoModifier};
+    Qt::MouseEventSource mLongPressSource{Qt::MouseEventNotSynthesized};
+
+private slots:
+    void handleLongPressTimeout();
+
+private:
+    void dispatchDeferredPress();
+
     // floating page navigation bar (top-center pill: ◄ Page X / Y ►)
     class QWidget *mPageNavBar{nullptr};
     class QLabel *mPageLabel{nullptr};
