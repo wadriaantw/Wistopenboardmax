@@ -476,6 +476,11 @@ void UBPlatformUtils::showFullScreen(QWidget *pWidget)
     }
 }
 
+void UBPlatformUtils::minimizeMainWindow(QWidget *pWidget)
+{
+    if (pWidget) pWidget->showMinimized();
+}
+
 void UBPlatformUtils::showOSK(bool show)
 {
     if (show) {

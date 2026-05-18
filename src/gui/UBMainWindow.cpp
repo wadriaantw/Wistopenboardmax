@@ -38,6 +38,7 @@
 #include "board/UBBoardController.h"
 #include "core/UBDisplayManager.h"
 #include "core/UBShortcutManager.h"
+#include "frameworks/UBPlatformUtils.h"
 
 // work around for handling tablet events on MAC OS with Qt 4.8.0 and above
 #if defined(Q_OS_OSX)
@@ -96,8 +97,12 @@ UBMainWindow::UBMainWindow(QWidget *parent, Qt::WindowFlags flags)
     UBShortcutManager::shortcutManager()->addMainActions(this);
 
     // Wire the in-toolbar Minimize button (frameless main window has no OS title bar).
+    // On macOS, QWidget::showMinimized() is a no-op on a frameless window, so route
+    // through UBPlatformUtils which calls -miniaturize: on the NSWindow directly.
     actionMinimize->setIcon(style()->standardIcon(QStyle::SP_TitleBarMinButton));
-    connect(actionMinimize, &QAction::triggered, this, &QWidget::showMinimized);
+    connect(actionMinimize, &QAction::triggered, this, [this]() {
+        UBPlatformUtils::minimizeMainWindow(this);
+    });
 }
 
 UBMainWindow::~UBMainWindow()

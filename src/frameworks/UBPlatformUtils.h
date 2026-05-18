@@ -211,6 +211,10 @@ public:
         static QStringList availableTranslations();
         static void setFrontProcess();
         static void showFullScreen(QWidget * pWidget);
+        // Minimize a frameless / maximized window. On macOS, QWidget::showMinimized()
+        // does nothing for frameless windows because there is no NSWindow titlebar
+        // miniaturize button — we have to call -miniaturize: on the NSWindow directly.
+        static void minimizeMainWindow(QWidget * pWidget);
         static void showOSK(bool show);
 
 #ifdef Q_OS_OSX

@@ -643,6 +643,22 @@ void UBPlatformUtils::showFullScreen(QWidget *pWidget)
 }
 
 
+void UBPlatformUtils::minimizeMainWindow(QWidget *pWidget)
+{
+    // QWidget::showMinimized() is a no-op on a frameless macOS window because
+    // there is no NSWindow titlebar miniaturize button to drive. Reach into
+    // Cocoa and call -miniaturize: on the underlying NSWindow directly.
+    if (!pWidget || !pWidget->windowHandle()) return;
+
+    NSView *view = reinterpret_cast<NSView *>(pWidget->windowHandle()->winId());
+    if (!view) return;
+    NSWindow *nsWindow = [view window];
+    if (!nsWindow) return;
+
+    [nsWindow miniaturize:nil];
+}
+
+
 void UBPlatformUtils::showOSK(bool show)
 {
     if (QOperatingSystemVersion::current().majorVersion() == 10 && QOperatingSystemVersion::current().minorVersion() < 15) /* < Catalina */
