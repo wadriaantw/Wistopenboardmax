@@ -906,7 +906,14 @@ void UBBoardController::setupToolbar()
             minBtn->setFixedSize(34, 22);
             minBtn->setStyleSheet(baseCss);
             connect(minBtn, &QToolButton::clicked, this, [](){
-                if (UBApplication::mainWindow) UBApplication::mainWindow->showMinimized();
+                // Route through the platform helper — on macOS frameless
+                // windows showMinimized() is a no-op (no titlebar miniaturize
+                // button to drive). UBPlatformUtils::minimizeMainWindow
+                // forces NSWindowStyleMaskMiniaturizable + -miniaturize:, and
+                // falls back to [NSApp hide:nil] if that's still refused.
+                if (UBApplication::mainWindow) {
+                    UBPlatformUtils::minimizeMainWindow(UBApplication::mainWindow);
+                }
             });
             bar->addWidget(minBtn);
 
