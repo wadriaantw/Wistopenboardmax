@@ -645,17 +645,44 @@ void UBPlatformUtils::showFullScreen(QWidget *pWidget)
 
 void UBPlatformUtils::minimizeMainWindow(QWidget *pWidget)
 {
-    // QWidget::showMinimized() is a no-op on a frameless macOS window because
-    // there is no NSWindow titlebar miniaturize button to drive. Reach into
-    // Cocoa and call -miniaturize: on the underlying NSWindow directly.
-    if (!pWidget || !pWidget->windowHandle()) return;
+    // OpenBoard's main window is frameless + showMaximized() — its underlying
+    // NSWindow uses NSWindowStyleMaskBorderless, which lacks
+    // NSWindowStyleMaskMiniaturizable. Both QWidget::showMinimized() and
+    // [NSWindow miniaturize:] silently do nothing in that state.
+    //
+    // Try three things, in order of "most like a minimize":
+    //   1. Force the miniaturizable style mask on the window, then miniaturize.
+    //      Works on most macOS versions and gives the user the usual
+    //      "thumbnail in the Dock" affordance.
+    //   2. If that didn't actually hide the window, fall back to hiding the
+    //      whole app (same effect as Cmd+H) — the OpenBoard Dock icon stays
+    //      and the user clicks it to restore.
+    //   3. If we somehow don't have an NSWindow at all, plain showMinimized().
+    Q_UNUSED(pWidget);
 
-    NSView *view = reinterpret_cast<NSView *>(pWidget->windowHandle()->winId());
-    if (!view) return;
-    NSWindow *nsWindow = [view window];
-    if (!nsWindow) return;
+    NSWindow *nsWindow = nil;
+    if (pWidget && pWidget->windowHandle()) {
+        NSView *view = reinterpret_cast<NSView *>(pWidget->windowHandle()->winId());
+        if (view) nsWindow = [view window];
+    }
 
-    [nsWindow miniaturize:nil];
+    if (nsWindow) {
+        NSWindowStyleMask mask = [nsWindow styleMask];
+        if (!(mask & NSWindowStyleMaskMiniaturizable)) {
+            [nsWindow setStyleMask:(mask | NSWindowStyleMaskMiniaturizable)];
+        }
+        [nsWindow miniaturize:nil];
+
+        // If miniaturize succeeded the window is no longer visible. If it
+        // silently failed (borderless windows sometimes refuse), fall back
+        // to a full app hide so SOMETHING actually happens.
+        if ([nsWindow isVisible] && ![nsWindow isMiniaturized]) {
+            [NSApp hide:nil];
+        }
+        return;
+    }
+
+    if (pWidget) pWidget->showMinimized();
 }
 
 
