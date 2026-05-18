@@ -471,17 +471,32 @@ bool UBBoardView::viewportEvent(QEvent *event)
     }
 #endif
 
-    // Smartboard / touchscreen QTouchEvents arrive at the viewport. The full
-    // pinch / one-finger-pan / two-finger-pinch logic lives in our event()
-    // override below, but on macOS the bubble-up path from viewport → view
-    // isn't reliable, so touch events never reach event() and the board
-    // ignores all finger input. Forward them explicitly here. On Windows /
-    // Linux this just shortcuts the same viewport → scene → bubble-up chain
-    // — same end result.
+    // Smartboard / touchscreen QTouchEvents arrive at the viewport but on
+    // macOS don't reliably bubble up to view::event(). Forward them so the
+    // pinch / pan handler in event() can see them.
+    //
+    // CRITICAL: only forward TouchScreen events. The MacBook trackpad, with
+    // WA_AcceptTouchEvents enabled on the viewport, emits a QTouchEvent for
+    // every cursor movement — one finger on the trackpad reads as a single
+    // touch point. Forwarding those would make the whole board pan along
+    // with the cursor. Restrict to genuine touch-screen devices so the
+    // smartboard works without the trackpad hijacking input.
     if (event->type() == QEvent::TouchBegin
         || event->type() == QEvent::TouchUpdate
         || event->type() == QEvent::TouchEnd) {
-        return this->event(event);
+        QTouchEvent *te = static_cast<QTouchEvent*>(event);
+#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+        const auto *dev = te->pointingDevice();
+        const bool isTouchScreen = dev && dev->type() == QInputDevice::DeviceType::TouchScreen;
+#else
+        const auto *dev = te->device();
+        const bool isTouchScreen = dev && dev->type() == QTouchDevice::TouchScreen;
+#endif
+        if (isTouchScreen) {
+            return this->event(event);
+        }
+        // Trackpad touches — let the default path handle them (which on
+        // macOS becomes mouse synthesis, i.e. cursor movement only).
     }
 
     return QGraphicsView::viewportEvent(event);
