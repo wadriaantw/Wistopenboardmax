@@ -191,12 +191,19 @@ void UBBoardView::init ()
     mTouchPanId = -1;
     mTouchPinchStartDist = 0.0;
 
-    // Long-press-to-pan timer (macOS smartboard workaround). 300 ms is the
-    // sweet spot: long enough that quick draw strokes aren't intercepted,
-    // short enough to feel responsive when you actually want to pan.
+    // Long-press-to-pan timer (macOS smartboard workaround).
+    // Tuning: the slop threshold (see mouseMoveEvent, 8 px) flips the
+    // gesture to "draw" as soon as the finger moves more than that, so the
+    // interval only matters during the press-and-hold phase before motion
+    // starts. 150 ms is a balance: short enough that pan feels responsive,
+    // long enough that slow writers who briefly pause after touching the
+    // board don't get hijacked into pan mode. Drop to 100-120 ms if Josh
+    // wants pan to trigger faster (small risk of catching slow stroke
+    // starts); raise to 200 ms if it's too eager.
+    static constexpr int kLongPressPanIntervalMs = 150;
     mLongPressPanTimer = new QTimer(this);
     mLongPressPanTimer->setSingleShot(true);
-    mLongPressPanTimer->setInterval(300);
+    mLongPressPanTimer->setInterval(kLongPressPanIntervalMs);
     connect(mLongPressPanTimer, &QTimer::timeout,
             this, &UBBoardView::handleLongPressTimeout);
     mTouchPinchId1 = -1;
