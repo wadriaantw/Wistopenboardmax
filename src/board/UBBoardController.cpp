@@ -350,6 +350,21 @@ void UBBoardController::setupViews()
 
     connect(mControlView, SIGNAL(resized(QResizeEvent*)), this, SLOT(boardViewResized(QResizeEvent*)));
 
+    // Persist the current zoom/pan on every viewport change so we don't lose
+    // it when the user alt-tabs away. boardViewResized() (fired on app
+    // re-activate, screen reconfigure, dock show/hide, etc.) calls
+    // restoreViewPositionOnCurrentScene(), which reads the last persisted
+    // state — so if the persisted state lags behind the user's current
+    // zoom/pan, returning to the app resets the view. Wiring the
+    // scrollbars + zoomChanged keeps the persisted state in sync at all
+    // times. Cost is one struct-assign per event; negligible.
+    connect(mControlView->horizontalScrollBar(), &QAbstractSlider::valueChanged,
+            this, [this](int){ persistViewPositionOnCurrentScene(); });
+    connect(mControlView->verticalScrollBar(), &QAbstractSlider::valueChanged,
+            this, [this](int){ persistViewPositionOnCurrentScene(); });
+    connect(this, &UBBoardController::zoomChanged,
+            this, [this](qreal){ persistViewPositionOnCurrentScene(); });
+
     // TODO UB 4.x Optimization do we have to create the display view even if their is
     // only 1 screen
     //
