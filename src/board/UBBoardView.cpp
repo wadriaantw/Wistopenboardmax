@@ -324,6 +324,15 @@ std::shared_ptr<UBGraphicsScene> UBBoardView::scene ()
 
 void UBBoardView::keyPressEvent (QKeyEvent *event)
 {
+    // Give the scene first crack — a focused text item editing inline will
+    // accept the key (including Space) and we should NOT then interpret
+    // Space as "begin pan" or "next scene". Without this, typing in a text
+    // box would either pan the board or skip to the next page.
+    QApplication::sendEvent (scene().get(), event);
+    if (event->isAccepted()) {
+        return;
+    }
+
     // Space-hold pan: arm the pan flag on the FIRST Space press (ignore
     // auto-repeats). Don't trigger next-scene here — that happens on key
     // release iff no drag occurred while Space was held.
@@ -338,9 +347,6 @@ void UBBoardView::keyPressEvent (QKeyEvent *event)
         event->accept();
         return;
     }
-
-    // send to the scene anyway
-    QApplication::sendEvent (scene().get(), event);
 
     if (!event->isAccepted ())
     {
