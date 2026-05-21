@@ -197,10 +197,11 @@ void UBBoardView::init ()
     // interval only matters during the press-and-hold phase before motion
     // starts. 150 ms is a balance: short enough that pan feels responsive,
     // long enough that slow writers who briefly pause after touching the
-    // board don't get hijacked into pan mode. Drop to 100-120 ms if Josh
-    // wants pan to trigger faster (small risk of catching slow stroke
-    // starts); raise to 200 ms if it's too eager.
-    static constexpr int kLongPressPanIntervalMs = 150;
+    // board don't get hijacked into pan mode. Bumped back to 300 ms after
+    // 150 ms caught Josh's normal handwriting (touch-pause-stroke pattern
+    // produced unwanted pans). Drop if pan feels sluggish; raise if normal
+    // strokes still get intercepted.
+    static constexpr int kLongPressPanIntervalMs = 300;
     mLongPressPanTimer = new QTimer(this);
     mLongPressPanTimer->setSingleShot(true);
     mLongPressPanTimer->setInterval(kLongPressPanIntervalMs);
