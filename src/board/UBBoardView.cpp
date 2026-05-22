@@ -653,12 +653,18 @@ bool UBBoardView::event (QEvent * e)
             return viewport()->mapFromGlobal(p.globalPosition().toPoint());
         };
         auto ptId  = [](const QEventPoint& p) { return p.id(); };
+        auto contactSize = [](const QEventPoint& p) -> qreal {
+            QSizeF d = p.ellipseDiameters(); return qMax(d.width(), d.height());
+        };
 #else
         const auto& pts = te->touchPoints();
         auto ptPos = [this](const QTouchEvent::TouchPoint& p) -> QPointF {
             return viewport()->mapFromGlobal(p.screenPos().toPoint());
         };
         auto ptId  = [](const QTouchEvent::TouchPoint& p) { return p.id(); };
+        auto contactSize = [](const QTouchEvent::TouchPoint& p) -> qreal {
+            QRectF r = p.rect(); return qMax(r.width(), r.height());
+        };
 #endif
 
         if (pts.isEmpty())
@@ -761,7 +767,10 @@ bool UBBoardView::event (QEvent * e)
                 mTouchPinchStartDist = QLineF(p0, p1).length();
                 mTouchPinchScenePivot = mapToScene(((p0 + p1) / 2.0).toPoint());
             } else {
-                mIsTouchPanning = true;
+                // Stylus tip is tiny (< 8 px contact); finger is broad (>= 8 px).
+                // If the board reports 0,0 we can't tell — fall back to arming pan.
+                const qreal cs = contactSize(pts.first());
+                mIsTouchPanning = !(cs > 0.0 && cs < 8.0);
                 mTouchPanId = ptId(pts.first());
                 mTouchPanStart = ptPos(pts.first());
                 mTouchPinchStartDist = 0.0;
@@ -797,12 +806,15 @@ bool UBBoardView::event (QEvent * e)
             // PRIORITY 2: single finger → pan.
             if (pts.size() == 1) {
                 if (!mIsTouchPanning) {
-                    // Coming from pinch (or never armed): start a fresh pan from current pos.
-                    mIsTouchPanning = true;
-                    mTouchPanId = ptId(pts[0]);
-                    mTouchPanStart = ptPos(pts[0]);
-                    mTouchPinchStartDist = 0.0;
-                    mTouchPinchId1 = mTouchPinchId2 = -1;
+                    // Coming from pinch (or never armed): apply same stylus filter.
+                    const qreal cs = contactSize(pts[0]);
+                    if (!(cs > 0.0 && cs < 8.0)) {
+                        mIsTouchPanning = true;
+                        mTouchPanId = ptId(pts[0]);
+                        mTouchPanStart = ptPos(pts[0]);
+                        mTouchPinchStartDist = 0.0;
+                        mTouchPinchId1 = mTouchPinchId2 = -1;
+                    }
                 } else if (ptId(pts[0]) != mTouchPanId) {
                     // Finger swap (ID changed mid-pan): resync without a jump.
                     mTouchPanId = ptId(pts[0]);
