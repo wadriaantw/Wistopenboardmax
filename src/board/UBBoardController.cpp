@@ -864,7 +864,7 @@ void UBBoardController::setupToolbar()
         clockLabel->setContentsMargins(8, 0, 12, 0);
         clockLabel->setStyleSheet(
             "QLabel#taiwanClockLabel {"
-            " color: white;"
+            " color: #222222;"
             " font-size: 16px;"
             " font-weight: bold;"
             " padding-left: 8px;"
