@@ -231,6 +231,8 @@ private:
     bool mIsTouchPanning;
     QPointF mTouchPanStart;
     int mTouchPanId;                 // finger id being tracked for pan (-1 = none)
+    QPointF mTouchPanAnchor;         // fixed start anchor for movement-deadzone check
+    bool mTouchPanArmed;             // contact passed size filter; awaiting deadzone
     qreal mTouchPinchStartDist;
     QPointF mTouchPinchScenePivot;
     int mTouchPinchId1;              // finger ids locked at pinch start (-1 = none)
