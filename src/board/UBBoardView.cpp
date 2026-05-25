@@ -655,18 +655,12 @@ bool UBBoardView::event (QEvent * e)
             return viewport()->mapFromGlobal(p.globalPosition().toPoint());
         };
         auto ptId  = [](const QEventPoint& p) { return p.id(); };
-        auto contactSize = [](const QEventPoint& p) -> qreal {
-            QSizeF d = p.ellipseDiameters(); return qMax(d.width(), d.height());
-        };
 #else
         const auto& pts = te->touchPoints();
         auto ptPos = [this](const QTouchEvent::TouchPoint& p) -> QPointF {
             return viewport()->mapFromGlobal(p.screenPos().toPoint());
         };
         auto ptId  = [](const QTouchEvent::TouchPoint& p) { return p.id(); };
-        auto contactSize = [](const QTouchEvent::TouchPoint& p) -> qreal {
-            QRectF r = p.rect(); return qMax(r.width(), r.height());
-        };
 #endif
 
         if (pts.isEmpty())
@@ -769,21 +763,18 @@ bool UBBoardView::event (QEvent * e)
                 mTouchPinchStartDist = QLineF(p0, p1).length();
                 mTouchPinchScenePivot = mapToScene(((p0 + p1) / 2.0).toPoint());
             } else {
-                // Two-stage stylus filter for passive plastic-pen styluses
-                // (Windows sees them as touch, not pen — no QTabletEvent).
+                // Movement-deadzone stylus filter for passive plastic-pen
+                // styluses (Windows sees them as touch, not pen). Any single
+                // touch arms pan, but pan does not actually engage until the
+                // touch has moved > 25 px from its fixed start anchor. Short
+                // writing strokes finish under that distance, so the board
+                // doesn't drift mid-letter. Deliberate finger drags exceed it.
                 //
-                //   1. Contact size: stylus tip < 20 px, finger >= 20 px.
-                //      Tilted-pen contacts can grow but still stay below ~20 px.
-                //   2. Movement deadzone: even a borderline-large contact must
-                //      move > 15 px from its start point before pan activates.
-                //      Short writing strokes finish under this distance.
-                //
-                // If the board reports 0,0 contact size we can't tell — fall
-                // back to arming pan (old behaviour), but the deadzone still
-                // applies, so quick writing strokes are still safe.
-                const qreal cs = contactSize(pts.first());
-                const bool sizeLooksLikeStylus = (cs > 0.0 && cs < 20.0);
-                mTouchPanArmed = !sizeLooksLikeStylus;  // big enough → could pan
+                // Contact-size filter was tried (r2/r3) but proved unreliable
+                // across different smartboard drivers — on at least one PC the
+                // board reported tiny ellipse sizes for finger contacts too,
+                // which blocked legitimate finger pans.
+                mTouchPanArmed = true;                  // always armed for single touch
                 mIsTouchPanning = false;                // not panning until deadzone clears
                 mTouchPanId = ptId(pts.first());
                 mTouchPanStart = ptPos(pts.first());
@@ -818,22 +809,21 @@ bool UBBoardView::event (QEvent * e)
                 return true;
             }
 
-            // PRIORITY 2: single finger → pan.
+            // PRIORITY 2: single finger → pan (with 25 px movement deadzone).
             if (pts.size() == 1) {
                 if (!mIsTouchPanning) {
-                    // Not actively panning yet. Two sub-cases:
-                    //   a) Armed (size filter passed at TouchBegin) — waiting on
-                    //      the 15 px movement deadzone before pan activates.
-                    //   b) Not armed — touch looked stylus-sized at begin, or
-                    //      we just dropped out of a pinch. Re-check size and arm
-                    //      if it now looks finger-sized (e.g. pinch→pan).
+                    // Two sub-cases:
+                    //   a) Armed at TouchBegin — waiting on the deadzone.
+                    //   b) Not armed (came from pinch) — arm now and pan
+                    //      immediately (no deadzone for pinch→pan transitions
+                    //      since the finger was already tracked).
                     if (mTouchPanArmed) {
                         QPointF cur = ptPos(pts[0]);
                         QPointF d = cur - mTouchPanAnchor;
-                        const qreal DEADZONE_SQ = 15.0 * 15.0;
+                        const qreal DEADZONE_SQ = 25.0 * 25.0;
                         if (d.x()*d.x() + d.y()*d.y() > DEADZONE_SQ) {
                             // Exited deadzone — start panning from current pos
-                            // so we don't lurch by 15 px on the first frame.
+                            // so we don't lurch by 25 px on the first frame.
                             mIsTouchPanning = true;
                             mTouchPanId = ptId(pts[0]);
                             mTouchPanStart = cur;
@@ -842,20 +832,13 @@ bool UBBoardView::event (QEvent * e)
                         }
                         // else: still inside deadzone, swallow movement
                     } else {
-                        const qreal cs = contactSize(pts[0]);
-                        if (!(cs > 0.0 && cs < 20.0)) {
-                            // Finger-sized contact (coming from pinch). Start
-                            // panning immediately — no deadzone for the
-                            // pinch→pan transition since the finger was already
-                            // tracked and clearly an intentional gesture.
-                            mIsTouchPanning = true;
-                            mTouchPanArmed = true;
-                            mTouchPanId = ptId(pts[0]);
-                            mTouchPanStart = ptPos(pts[0]);
-                            mTouchPanAnchor = mTouchPanStart;
-                            mTouchPinchStartDist = 0.0;
-                            mTouchPinchId1 = mTouchPinchId2 = -1;
-                        }
+                        mIsTouchPanning = true;
+                        mTouchPanArmed = true;
+                        mTouchPanId = ptId(pts[0]);
+                        mTouchPanStart = ptPos(pts[0]);
+                        mTouchPanAnchor = mTouchPanStart;
+                        mTouchPinchStartDist = 0.0;
+                        mTouchPinchId1 = mTouchPinchId2 = -1;
                     }
                 } else if (ptId(pts[0]) != mTouchPanId) {
                     // Finger swap (ID changed mid-pan): resync without a jump.
