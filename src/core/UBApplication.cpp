@@ -48,6 +48,8 @@
 #include "UBShortcutManager.h"
 
 #include "board/UBBoardController.h"
+#include "core/UBApplicationController.h"
+#include "desktop/UBDesktopAnnotationController.h"
 #include "board/UBDrawingController.h"
 #include "board/UBBoardView.h"
 #include "board/UBBoardPaletteManager.h"
@@ -671,6 +673,14 @@ bool UBApplication::eventFilter(QObject *obj, QEvent *event)
     {
         if (boardController && boardController->controlView())
             boardController->controlView()->forcedTabletRelease();
+
+        // Desktop overlay draws on its OWN view (not controlView). Without this,
+        // a pen-lift (proximity leave) in desktop mode never force-ends the
+        // stroke there, so it stays "active" and produces phantom marks / stray
+        // lines on the next sample. Force-release that view too.
+        if (applicationController && applicationController->uninotesController()
+            && applicationController->uninotesController()->drawingView())
+            applicationController->uninotesController()->drawingView()->forcedTabletRelease();
     }
 
 

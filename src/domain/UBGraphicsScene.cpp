@@ -404,10 +404,16 @@ bool UBGraphicsScene::inputDevicePress(const QPointF& scenePos, const qreal& pre
     bool accepted = false;
 
     if (mInputDeviceIsPressed) {
-        qWarning() << "scene received input device pressed, without input device release, muting event as input device move";
-        accepted = inputDeviceMove(scenePos, pressure, modifiers);
+        // Missed pen-up (driver dropped the release event). End the stale stroke
+        // cleanly instead of muting this press as a move — muting would draw a
+        // line from the previous stroke's last point to this new press location,
+        // i.e. the long stray line "shooting across the screen", often in the
+        // opposite direction of the intended stroke.
+        qWarning() << "input device press without prior release; force-ending stale stroke";
+        inputDeviceRelease();
     }
-    else {
+
+    {
         mInputDeviceIsPressed = true;
 
         UBStylusTool::Enum currentTool = (UBStylusTool::Enum)UBDrawingController::drawingController()->stylusTool();
@@ -654,6 +660,18 @@ bool UBGraphicsScene::inputDeviceMove(const QPointF& scenePos, const qreal& pres
                 qreal antiScaleRatio = 1./(UBApplication::boardController->systemScaleFactor() * UBApplication::boardController->currentZoom());
                 qreal MIN_DISTANCE = 10*antiScaleRatio; // arbitrary. Move to settings if relevant.
                 qreal distance = QLineF(mPreviousPoint, scenePos).length();
+
+                // Reject a single "teleport" sample: a point that jumps an
+                // implausibly large distance from the previous one in one move is
+                // a stylus/driver glitch (stray sample after/near pen-up).
+                // Drawing it would shoot a line across the screen. Skip this
+                // segment and keep the last good point — a genuine new stroke
+                // arrives through inputDevicePress, not a giant single move.
+                qreal jumpThreshold = 1200.0 * antiScaleRatio;
+                if (distance > jumpThreshold) {
+                    qWarning() << "rejecting stray stylus jump:" << distance << "scene units";
+                    return true;
+                }
 
                 mDistanceFromLastStrokePoint += distance;
 
