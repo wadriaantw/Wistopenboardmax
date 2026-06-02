@@ -29,6 +29,8 @@
 
 #include "UBDesktopAnnotationController.h"
 
+#include <QMenu>
+
 #include "frameworks/UBPlatformUtils.h"
 
 #include "core/UBApplication.h"
@@ -98,7 +100,9 @@ UBDesktopAnnotationController::UBDesktopAnnotationController(QObject *parent, UB
     QString backgroundStyle = "QWidget {background-color: rgba(127, 127, 127, 0)}";
     mTransparentDrawingView->setStyleSheet(backgroundStyle);
 
-    mTransparentDrawingScene = std::make_shared<UBGraphicsScene>(nullptr, false);
+    // enableUndoRedoStack = true so desktop annotations record undo/redo commands
+    // (otherwise the Undo/Redo buttons never light up on the desktop palette).
+    mTransparentDrawingScene = std::make_shared<UBGraphicsScene>(nullptr, true);
     updateColors();
 
     mTransparentDrawingView->setScene(mTransparentDrawingScene.get());
@@ -123,6 +127,7 @@ UBDesktopAnnotationController::UBDesktopAnnotationController(QObject *parent, UB
     connect(mDesktopPalette, SIGNAL(uniboardClick()), this, SLOT(goToUniboard()));
     connect(mDesktopPalette, SIGNAL(customClick()), this, SLOT(customCapture()));
     connect(mDesktopPalette, SIGNAL(screenClick()), this, SLOT(screenCapture()));
+    connect(mDesktopPalette, SIGNAL(mathClick()), this, SLOT(onMathClick()));
     connect(UBApplication::mainWindow->actionPointer, SIGNAL(triggered()), this, SLOT(onToolClicked()));
     connect(UBApplication::mainWindow->actionSelector, SIGNAL(triggered()), this, SLOT(onToolClicked()));
     connect(mDesktopPalette, SIGNAL(maximized()), this, SLOT(onDesktopPaletteMaximized()));
@@ -192,6 +197,32 @@ void UBDesktopAnnotationController::updateColors(){
     }else{
         mTransparentDrawingScene->setBackground(false, UBPageBackground::plain);
     }
+}
+
+void UBDesktopAnnotationController::onMathClick()
+{
+    if (!mTransparentDrawingScene || !mTransparentDrawingView)
+        return;
+
+    // Drop each tool at the centre of the desktop view.
+    QPointF center = mTransparentDrawingView->mapToScene(
+                mTransparentDrawingView->viewport()->rect().center());
+    UBGraphicsScene* scene = mTransparentDrawingScene.get();
+
+    QMenu menu(mTransparentDrawingView);
+    QAction* protAct  = menu.addAction(tr("Protractor"));
+    QAction* compAct  = menu.addAction(tr("Compass"));
+    QAction* rulerAct = menu.addAction(tr("Ruler"));
+    QAction* axesAct  = menu.addAction(tr("Set Square"));
+    QAction* triAct   = menu.addAction(tr("Drafting Triangle"));
+
+    connect(protAct,  &QAction::triggered, this, [scene, center](){ scene->addProtractor(center); });
+    connect(compAct,  &QAction::triggered, this, [scene, center](){ scene->addCompass(center); });
+    connect(rulerAct, &QAction::triggered, this, [scene, center](){ scene->addRuler(center); });
+    connect(axesAct,  &QAction::triggered, this, [scene, center](){ scene->addAxes(center); });
+    connect(triAct,   &QAction::triggered, this, [scene, center](){ scene->addTriangle(center); });
+
+    menu.exec(QCursor::pos());
 }
 
 UBDesktopPalette* UBDesktopAnnotationController::desktopPalette()

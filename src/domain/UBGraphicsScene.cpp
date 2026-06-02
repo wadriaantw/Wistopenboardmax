@@ -2499,6 +2499,11 @@ void UBGraphicsScene::addRuler(QPointF center)
     addItem(ruler);
 
     ruler->setVisible(true);
+
+    if (mUndoRedoStackEnabled) {
+        UBGraphicsItemUndoCommand* uc = new UBGraphicsItemUndoCommand(shared_from_this(), 0, ruler);
+        UBApplication::undoStack->push(uc);
+    }
 }
 
 void UBGraphicsScene::addAxes(QPointF center)
@@ -2513,6 +2518,11 @@ void UBGraphicsScene::addAxes(QPointF center)
     axes->moveBy(center.x() - itemSceneCenter.x(), center.y() - itemSceneCenter.y());
 
     axes->setVisible(true);
+
+    if (mUndoRedoStackEnabled) {
+        UBGraphicsItemUndoCommand* uc = new UBGraphicsItemUndoCommand(shared_from_this(), 0, axes);
+        UBApplication::undoStack->push(uc);
+    }
 }
 
 void UBGraphicsScene::addProtractor(QPointF center)
@@ -2530,6 +2540,11 @@ void UBGraphicsScene::addProtractor(QPointF center)
     protractor->moveBy(center.x() - itemSceneCenter.x(), center.y() - itemSceneCenter.y());
 
     protractor->setVisible(true);
+
+    if (mUndoRedoStackEnabled) {
+        UBGraphicsItemUndoCommand* uc = new UBGraphicsItemUndoCommand(shared_from_this(), 0, protractor);
+        UBApplication::undoStack->push(uc);
+    }
 }
 
 void UBGraphicsScene::addTriangle(QPointF center)
@@ -2547,6 +2562,11 @@ void UBGraphicsScene::addTriangle(QPointF center)
     triangle->moveBy(center.x() - itemSceneCenter.x(), center.y() - itemSceneCenter.y());
 
     triangle->setVisible(true);
+
+    if (mUndoRedoStackEnabled) {
+        UBGraphicsItemUndoCommand* uc = new UBGraphicsItemUndoCommand(shared_from_this(), 0, triangle);
+        UBApplication::undoStack->push(uc);
+    }
 }
 
 void UBGraphicsScene::addMagnifier(UBMagnifierParams params)
@@ -2728,6 +2748,11 @@ void UBGraphicsScene::addCompass(QPointF center)
     compass->setData(UBGraphicsItemData::ItemLayerType, QVariant(UBItemLayerType::Tool));
 
     compass->setVisible(true);
+
+    if (mUndoRedoStackEnabled) {
+        UBGraphicsItemUndoCommand* uc = new UBGraphicsItemUndoCommand(shared_from_this(), 0, compass);
+        UBApplication::undoStack->push(uc);
+    }
 }
 
 void UBGraphicsScene::addCache()

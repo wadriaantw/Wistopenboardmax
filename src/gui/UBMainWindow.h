@@ -36,6 +36,8 @@
 #include "UBDownloadWidget.h"
 
 class QStackedLayout;
+class QTabBar;
+class QToolBar;
 
 #include "ui_mainWindow.h"
 
@@ -62,6 +64,12 @@ class UBMainWindow : public QMainWindow, public Ui::MainWindow
 
         void showDownloadWidget();
         void hideDownloadWidget();
+
+        // Document-tabs bar (multiple open documents, above the board toolbar).
+        QTabBar* documentTabBar() const { return mDocumentTabBar; }
+        void setDocumentTabsVisible(bool visible);
+        void placeDocumentTabsToolBar(Qt::ToolBarArea area);
+        void refreshDocumentTabsLayout();
 
     signals:
         void closeEvent_Signal( QCloseEvent *event );
@@ -93,6 +101,9 @@ private:
         bool event(QEvent *event);
 #endif
         UBDownloadWidget* mpDownloadWidget;
+
+        QToolBar* mDocumentTabsToolBar = nullptr;
+        QTabBar* mDocumentTabBar = nullptr;
 };
 
 #endif /* UBMAINWINDOW_H_ */

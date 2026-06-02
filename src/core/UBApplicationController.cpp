@@ -356,6 +356,7 @@ void UBApplicationController::showBoard()
     mMainWindow->webToolBar->hide();
     mMainWindow->documentToolBar->hide();
     mMainWindow->boardToolBar->show();
+    mMainWindow->setDocumentTabsVisible(true);
 
     if (mMainMode == Document)
     {
@@ -410,6 +411,7 @@ void UBApplicationController::showInternet()
         mMainWindow->boardToolBar->hide();
         mMainWindow->documentToolBar->hide();
         mMainWindow->webToolBar->show();
+        mMainWindow->setDocumentTabsVisible(false);
 
         mMainMode = Internet;
 
@@ -433,6 +435,7 @@ void UBApplicationController::showDocument()
     mMainWindow->boardToolBar->hide();
     UBPlatformUtils::hideMenuBarAndDock();
     mMainWindow->documentToolBar->show();
+    mMainWindow->setDocumentTabsVisible(false);
 
     mMainMode = Document;
 

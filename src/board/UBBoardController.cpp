@@ -280,6 +280,15 @@ void UBBoardController::init()
                     UBApplication::documentController->selectDocument(target, true);
             });
         }
+        else
+        {
+            // No existing document to resume — keep the placeholder blank as the
+            // first open tab so the tab bar is never empty.
+            registerOpenDocument(blankDoc);
+            if (QUndoStack* s = undoStackForProxy(blankDoc))
+                rebindUndoStack(s);
+            syncCurrentTab();
+        }
     });
 
     connect(UBApplication::displayManager, &UBDisplayManager::screenRolesAssigned, this, [this](){
@@ -1020,6 +1029,20 @@ void UBBoardController::connectToolbar()
     connect(mMainWindow->actionSleep, SIGNAL(triggered()), this, SLOT(blackout()));
     connect(mMainWindow->actionVirtualKeyboard, SIGNAL(triggered(bool)), this, SLOT(showKeyboard(bool)));
     connect(mMainWindow->actionImportPage, SIGNAL(triggered()), this, SLOT(importPage()));
+
+    // Document tabs (multiple open documents).
+    if (mMainWindow->documentTabBar())
+    {
+        connect(mMainWindow->documentTabBar(), SIGNAL(currentChanged(int)), this, SLOT(activateDocumentTab(int)));
+        connect(mMainWindow->documentTabBar(), SIGNAL(tabCloseRequested(int)), this, SLOT(closeDocumentTab(int)));
+        connect(mMainWindow->documentTabBar(), SIGNAL(tabMoved(int,int)), this, SLOT(documentTabMoved(int,int)));
+    }
+    connect(UBPersistenceManager::persistenceManager(), &UBPersistenceManager::documentMetadataChanged,
+            this, [this](std::shared_ptr<UBDocumentProxy> proxy){
+        int i = indexOfOpenDocument(proxy);
+        if (i >= 0 && mMainWindow && mMainWindow->documentTabBar())
+            mMainWindow->documentTabBar()->setTabText(i, documentTabTitle(proxy));
+    });
 }
 
 void UBBoardController::startScript()
@@ -2318,6 +2341,11 @@ std::shared_ptr<UBGraphicsScene> UBBoardController::setActiveDocumentScene(std::
         UBSettings::settings()->save();
     }
 
+    // Decide how this open interacts with tabs: activate an existing tab,
+    // replace the active "main" tab's document (normal open from the library),
+    // or create a new tab (the "+" button). Skipped during init.
+    prepareTabForDocument(pDocumentProxy);
+
     int index = pSceneIndex;
     int sceneCount = pDocumentProxy->pageCount();
     if (index >= sceneCount && sceneCount > 0)
@@ -2329,12 +2357,34 @@ std::shared_ptr<UBGraphicsScene> UBBoardController::setActiveDocumentScene(std::
 
     if (targetScene)
     {
-        if (mActiveScene && !onImport)
+        // Per-document undo (multiple open documents): on a real document switch
+        // we keep BOTH documents' histories alive and simply repoint the global
+        // undo stack to the target document's own stack. ClearUndoStack() would
+        // destroy the leaving document's history and delete its orphaned items,
+        // so it must not run when we are only switching tabs. On same-document
+        // page navigation the historical clear-on-switch behaviour is kept.
+        QUndoStack* targetStack = mInInit ? nullptr : undoStackForProxy(pDocumentProxy);
+        // A "tab switch" preserves both documents' histories. Replacing the
+        // active tab's document instead clears (fresh history for the new doc),
+        // so it deliberately takes the ClearUndoStack path below.
+        bool tabSwitch = documentChange && targetStack && !mReplacingActiveTab;
+        mReplacingActiveTab = false;
+
+        if (tabSwitch)
+        {
+            if (mActiveScene && !onImport)
+            {
+                persistCurrentScene();
+                freezeW3CWidgets(true);
+            }
+        }
+        else if (mActiveScene && !onImport)
         {
             persistCurrentScene();
             freezeW3CWidgets(true);
             ClearUndoStack();
-        }else
+        }
+        else
         {
             UBApplication::undoStack->clear();
         }
@@ -2350,6 +2400,12 @@ std::shared_ptr<UBGraphicsScene> UBBoardController::setActiveDocumentScene(std::
         {
             disconnect(UBApplication::undoStack.data(), SIGNAL(indexChanged(int)), mControlView->scene().get(), SLOT(updateSelectionFrameWrapper(int)));
         }
+
+        // Repoint the active undo stack to the target document's stack *after*
+        // detaching the previous scene from the previous stack and *before*
+        // attaching the new scene to the new stack.
+        if (tabSwitch)
+            rebindUndoStack(targetStack);
 
         mControlView->setScene(mActiveScene.get());
         connect(UBApplication::undoStack.data(), SIGNAL(indexChanged(int)), mControlView->scene().get(), SLOT(updateSelectionFrameWrapper(int)));
@@ -2383,6 +2439,15 @@ std::shared_ptr<UBGraphicsScene> UBBoardController::setActiveDocumentScene(std::
 
         pDocumentProxy->setLastVisitedSceneIndex(mActiveSceneIndex);
 
+        // Keep the open-documents registry and the tab bar in sync with the
+        // document/scene we just activated.
+        int openIdx = indexOfOpenDocument(pDocumentProxy);
+        if (openIdx >= 0)
+        {
+            mOpenDocuments[openIdx].lastSceneIndex = mActiveSceneIndex;
+            syncCurrentTab();
+        }
+
         UBFeaturesController* featuresController = paletteManager()->featuresWidget()->getFeaturesController();
 
         QUrl url = QUrl::fromLocalFile(pDocumentProxy->persistencePath() + "/metadata.rdf");
@@ -2411,6 +2476,290 @@ std::shared_ptr<UBGraphicsScene> UBBoardController::setActiveDocumentScene(std::
     UBApplication::restoreOverrideCursor();
 
     return targetScene;
+}
+
+// ---------------------------------------------------------------------------
+// Multiple open documents (tabs)
+// ---------------------------------------------------------------------------
+
+int UBBoardController::indexOfOpenDocument(std::shared_ptr<UBDocumentProxy> proxy) const
+{
+    for (int i = 0; i < mOpenDocuments.size(); ++i)
+        if (mOpenDocuments.at(i).proxy == proxy)
+            return i;
+    return -1;
+}
+
+QUndoStack* UBBoardController::undoStackForProxy(std::shared_ptr<UBDocumentProxy> proxy) const
+{
+    int i = indexOfOpenDocument(proxy);
+    return (i >= 0) ? mOpenDocuments.at(i).undoStack.data() : nullptr;
+}
+
+QString UBBoardController::documentTabTitle(std::shared_ptr<UBDocumentProxy> proxy) const
+{
+    if (!proxy)
+        return tr("Untitled");
+    QString name = proxy->metaData(UBSettings::documentName).toString();
+    if (name.isEmpty())
+        name = proxy->name();
+    if (name.isEmpty())
+        name = tr("Untitled");
+    return name;
+}
+
+void UBBoardController::registerOpenDocument(std::shared_ptr<UBDocumentProxy> proxy)
+{
+    if (!proxy || indexOfOpenDocument(proxy) >= 0)
+        return;
+
+    UBOpenDocument entry;
+    entry.proxy = proxy;
+    entry.undoStack = new QUndoStack(UBApplication::staticMemoryCleaner);
+    entry.lastSceneIndex = 0;
+    mOpenDocuments.append(entry);
+
+    // Pin the document so its scenes stay loaded while it has an open tab —
+    // the per-document undo stack holds references into those scenes.
+    auto doc = UBDocument::getDocument(proxy);
+    if (doc && !mRecentDocuments.contains(doc))
+        mRecentDocuments.append(doc);
+
+    if (mMainWindow && mMainWindow->documentTabBar())
+    {
+        QTabBar* bar = mMainWindow->documentTabBar();
+        mTabSyncInProgress = true;
+        int i = bar->addTab(documentTabTitle(proxy));
+        bar->setTabToolTip(i, proxy->persistencePath());
+
+        // Our own close button (vertically centered, clean ×) instead of Qt's
+        // default one, which the global OpenBoard.css renders as an off-centre
+        // red box.
+        QToolButton* closeBtn = new QToolButton();
+        closeBtn->setObjectName("tabCloseButton");
+        closeBtn->setText(QString::fromUtf8("✕"));
+        closeBtn->setToolTip(tr("Close tab"));
+        closeBtn->setFocusPolicy(Qt::NoFocus);
+        closeBtn->setCursor(Qt::ArrowCursor);
+        closeBtn->setFixedSize(16, 16);
+        closeBtn->setStyleSheet(
+            "QToolButton { border:none; background:transparent; color:#bbbbbb; font-size:11px; padding:0; margin:0; }"
+            "QToolButton:hover { color:#ffffff; background:#c0392b; border-radius:8px; }");
+        connect(closeBtn, SIGNAL(clicked()), this, SLOT(closeDocumentTabFromButton()));
+        bar->setTabButton(i, QTabBar::RightSide, closeBtn);
+
+        mTabSyncInProgress = false;
+    }
+
+    if (mMainWindow)
+        mMainWindow->refreshDocumentTabsLayout();
+}
+
+void UBBoardController::prepareTabForDocument(std::shared_ptr<UBDocumentProxy> proxy)
+{
+    if (mInInit || !proxy)
+        return;
+
+    bool alreadyOpen = indexOfOpenDocument(proxy) >= 0;
+
+    if (alreadyOpen)
+    {
+        // Already open — this open just activates its existing tab. Do NOT clear
+        // mOpenNextInNewTab here: a routine re-activation of the current document
+        // (e.g. a refresh after pressing "+") must not consume the pending intent
+        // to open the NEXT (different) document in a new tab.
+        return;
+    }
+
+    if (mOpenDocuments.isEmpty() || mOpenNextInNewTab)
+    {
+        // First document, or an explicit "+" → open in a brand-new tab.
+        registerOpenDocument(proxy);
+    }
+    else
+    {
+        // Normal open from the library → replace the active "main" tab's doc.
+        replaceActiveTabDocument(proxy);
+    }
+
+    mOpenNextInNewTab = false;
+}
+
+void UBBoardController::replaceActiveTabDocument(std::shared_ptr<UBDocumentProxy> proxy)
+{
+    int idx = indexOfOpenDocument(selectedDocument());
+    if (idx < 0)
+    {
+        // No active tab to replace (shouldn't normally happen) — make a tab.
+        registerOpenDocument(proxy);
+        return;
+    }
+
+    // Re-point this tab at the new document. The tab keeps its QUndoStack
+    // object, which setActiveDocumentScene() clears (fresh history) because
+    // mReplacingActiveTab routes it through the ClearUndoStack path.
+    mReplacingActiveTab = true;
+    mOpenDocuments[idx].proxy = proxy;
+    mOpenDocuments[idx].lastSceneIndex = 0;
+
+    auto doc = UBDocument::getDocument(proxy);
+    if (doc && !mRecentDocuments.contains(doc))
+        mRecentDocuments.append(doc);
+
+    if (mMainWindow && mMainWindow->documentTabBar())
+    {
+        mTabSyncInProgress = true;
+        mMainWindow->documentTabBar()->setTabText(idx, documentTabTitle(proxy));
+        mMainWindow->documentTabBar()->setTabToolTip(idx, proxy->persistencePath());
+        mTabSyncInProgress = false;
+    }
+}
+
+void UBBoardController::rebindUndoStack(QUndoStack* newStack)
+{
+    if (!newStack)
+        return;
+
+    QUndoStack* oldStack = UBApplication::undoStack.data();
+    if (oldStack && oldStack != newStack)
+    {
+        disconnect(oldStack, SIGNAL(canUndoChanged(bool)), this, SLOT(undoRedoStateChange(bool)));
+        disconnect(oldStack, SIGNAL(canRedoChanged(bool)), this, SLOT(undoRedoStateChange(bool)));
+        if (mMainWindow)
+        {
+            disconnect(mMainWindow->actionUndo, SIGNAL(triggered()), oldStack, SLOT(undo()));
+            disconnect(mMainWindow->actionRedo, SIGNAL(triggered()), oldStack, SLOT(redo()));
+        }
+    }
+
+    UBApplication::undoStack = newStack;
+
+    connect(newStack, SIGNAL(canUndoChanged(bool)), this, SLOT(undoRedoStateChange(bool)), Qt::UniqueConnection);
+    connect(newStack, SIGNAL(canRedoChanged(bool)), this, SLOT(undoRedoStateChange(bool)), Qt::UniqueConnection);
+    if (mMainWindow)
+    {
+        connect(mMainWindow->actionUndo, SIGNAL(triggered()), newStack, SLOT(undo()), Qt::UniqueConnection);
+        connect(mMainWindow->actionRedo, SIGNAL(triggered()), newStack, SLOT(redo()), Qt::UniqueConnection);
+        mMainWindow->actionUndo->setEnabled(newStack->canUndo());
+        mMainWindow->actionRedo->setEnabled(newStack->canRedo());
+    }
+}
+
+void UBBoardController::syncCurrentTab()
+{
+    if (!mMainWindow || !mMainWindow->documentTabBar())
+        return;
+    QTabBar* bar = mMainWindow->documentTabBar();
+    int idx = indexOfOpenDocument(selectedDocument());
+    if (idx >= 0 && bar->currentIndex() != idx)
+    {
+        mTabSyncInProgress = true;
+        bar->setCurrentIndex(idx);
+        mTabSyncInProgress = false;
+    }
+}
+
+void UBBoardController::activateDocumentTab(int index)
+{
+    if (mTabSyncInProgress)
+        return;
+    mOpenNextInNewTab = false; // clicking a tab cancels any pending "+" intent
+    if (index < 0 || index >= mOpenDocuments.size())
+        return;
+
+    UBOpenDocument entry = mOpenDocuments.at(index);
+    if (!entry.proxy || entry.proxy == selectedDocument())
+        return;
+
+    setActiveDocumentScene(entry.proxy, entry.lastSceneIndex);
+    if (UBApplication::applicationController)
+        UBApplication::applicationController->showBoard();
+}
+
+void UBBoardController::closeDocumentTab(int index)
+{
+    if (index < 0 || index >= mOpenDocuments.size())
+        return;
+    if (mOpenDocuments.size() <= 1)
+        return; // always keep at least one document open
+
+    UBOpenDocument entry = mOpenDocuments.at(index);
+    bool closingActive = (entry.proxy == selectedDocument());
+
+    // Switch to a neighbour first when closing the active document, so the undo
+    // stack is repointed away from the stack we are about to destroy.
+    if (closingActive)
+    {
+        int neighbour = (index == mOpenDocuments.size() - 1) ? index - 1 : index + 1;
+        UBOpenDocument nb = mOpenDocuments.at(neighbour);
+        setActiveDocumentScene(nb.proxy, nb.lastSceneIndex);
+        if (UBApplication::applicationController)
+            UBApplication::applicationController->showBoard();
+    }
+
+    if (mMainWindow && mMainWindow->documentTabBar())
+    {
+        mTabSyncInProgress = true;
+        mMainWindow->documentTabBar()->removeTab(index);
+        mTabSyncInProgress = false;
+    }
+    if (entry.undoStack)
+        entry.undoStack->deleteLater();
+    mOpenDocuments.removeAt(index);
+
+    if (mMainWindow)
+        mMainWindow->refreshDocumentTabsLayout();
+
+    syncCurrentTab();
+}
+
+void UBBoardController::closeDocumentTabFromButton()
+{
+    if (!mMainWindow || !mMainWindow->documentTabBar())
+        return;
+    QObject* s = sender();
+    QTabBar* bar = mMainWindow->documentTabBar();
+    for (int i = 0; i < bar->count(); ++i)
+    {
+        if (bar->tabButton(i, QTabBar::RightSide) == s)
+        {
+            closeDocumentTab(i);
+            return;
+        }
+    }
+}
+
+void UBBoardController::documentTabMoved(int from, int to)
+{
+    if (from < 0 || to < 0 || from >= mOpenDocuments.size() || to >= mOpenDocuments.size())
+        return;
+    mOpenDocuments.move(from, to);
+}
+
+void UBBoardController::closeDocumentTabForProxy(std::shared_ptr<UBDocumentProxy> proxy)
+{
+    int idx = indexOfOpenDocument(proxy);
+    if (idx < 0)
+        return;
+
+    // For deletion we must drop the tab even if it is the last one (the document
+    // itself is going away). closeDocumentTab() refuses to close the last tab, so
+    // handle the lone-tab case directly here.
+    if (mOpenDocuments.size() <= 1)
+    {
+        if (mMainWindow && mMainWindow->documentTabBar())
+        {
+            mTabSyncInProgress = true;
+            mMainWindow->documentTabBar()->removeTab(idx);
+            mTabSyncInProgress = false;
+        }
+        if (mOpenDocuments.at(idx).undoStack)
+            mOpenDocuments[idx].undoStack->deleteLater();
+        mOpenDocuments.removeAt(idx);
+        return;
+    }
+
+    closeDocumentTab(idx);
 }
 
 void UBBoardController::findUniquesItems(const QUndoCommand *parent, QSet<QGraphicsItem*> &items)

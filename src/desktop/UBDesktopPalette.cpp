@@ -61,7 +61,13 @@ UBDesktopPalette::UBDesktopPalette(QWidget *parent, UBRightPalette* _rightPalett
     actions << UBApplication::mainWindow->actionEraser;
     actions << UBApplication::mainWindow->actionMarker;
     actions << UBApplication::mainWindow->actionSelector;
-    actions << UBApplication::mainWindow->actionPointer;
+    actions << UBApplication::mainWindow->actionUndo;
+    actions << UBApplication::mainWindow->actionRedo;
+    actions << UBApplication::mainWindow->actionSnapToShape; // snap-to-fit toggle (shares board setting)
+
+    mActionMath = new QAction(QIcon(":/images/toolbar/extraTool.png"), tr("Math Tools"), this);
+    connect(mActionMath, SIGNAL(triggered()), this, SIGNAL(mathClick()));
+    actions << mActionMath;
 
     if (UBPlatformUtils::hasVirtualKeyboard())
         actions << UBApplication::mainWindow->actionVirtualKeyboard;
@@ -202,7 +208,10 @@ void UBDesktopPalette::maximizeMe()
     actions << UBApplication::mainWindow->actionEraser;
     actions << UBApplication::mainWindow->actionMarker;
     actions << UBApplication::mainWindow->actionSelector;
-    actions << UBApplication::mainWindow->actionPointer;
+    actions << UBApplication::mainWindow->actionUndo;
+    actions << UBApplication::mainWindow->actionRedo;
+    actions << UBApplication::mainWindow->actionSnapToShape; // snap-to-fit toggle
+    actions << mActionMath;
     if (UBPlatformUtils::hasVirtualKeyboard())
         actions << UBApplication::mainWindow->actionVirtualKeyboard;
 

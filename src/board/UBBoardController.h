@@ -35,6 +35,8 @@
 #include <QObject>
 #include <QHBoxLayout>
 #include <QUndoCommand>
+#include <QUndoStack>
+#include <QPointer>
 
 #include "core/UB.h"
 #include "core/UBApplicationController.h"
@@ -194,7 +196,20 @@ class UBBoardController : public UBDocumentContainer
             return mInitialDocumentScene;
         }
 
+        // Close the tab for a document that is being deleted from the library
+        // (no-op if the document is not currently open in a tab).
+        void closeDocumentTabForProxy(std::shared_ptr<UBDocumentProxy> proxy);
+
+        // When true, the next document opened goes into a NEW tab (set by the
+        // "+" button). Otherwise a normal open replaces the active "main" tab.
+        void setOpenNextInNewTab(bool b) { mOpenNextInNewTab = b; }
+
     public slots:
+        void activateDocumentTab(int index);
+        void closeDocumentTab(int index);
+        void closeDocumentTabFromButton();
+        void documentTabMoved(int from, int to);
+
         void showDocumentsDialog();
         void showKeyboard(bool show);
         void togglePodcast(bool checked);
@@ -294,6 +309,26 @@ class UBBoardController : public UBDocumentContainer
         void initBackgroundGridSize();
         void updatePageSizeState();
         int autosaveTimeoutFromSettings() const;
+
+        // --- Multiple open documents (tabs) ---
+        struct UBOpenDocument {
+            std::shared_ptr<UBDocumentProxy> proxy;
+            QPointer<QUndoStack> undoStack;
+            int lastSceneIndex = 0;
+        };
+        int indexOfOpenDocument(std::shared_ptr<UBDocumentProxy> proxy) const;
+        void registerOpenDocument(std::shared_ptr<UBDocumentProxy> proxy);
+        void prepareTabForDocument(std::shared_ptr<UBDocumentProxy> proxy);
+        void replaceActiveTabDocument(std::shared_ptr<UBDocumentProxy> proxy);
+        QUndoStack* undoStackForProxy(std::shared_ptr<UBDocumentProxy> proxy) const;
+        void rebindUndoStack(QUndoStack* newStack);
+        QString documentTabTitle(std::shared_ptr<UBDocumentProxy> proxy) const;
+        void syncCurrentTab();
+
+        QList<UBOpenDocument> mOpenDocuments;
+        bool mTabSyncInProgress = false;
+        bool mOpenNextInNewTab = false;   // "+" was pressed → next open is a new tab
+        bool mReplacingActiveTab = false; // current open is replacing the active tab's doc
 
         UBMainWindow *mMainWindow;
         std::shared_ptr<UBGraphicsScene> mActiveScene;

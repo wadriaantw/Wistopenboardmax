@@ -3143,6 +3143,9 @@ void UBDocumentController::deleteIndexAndAssociatedData(const QModelIndex &pInde
             }
 
             if (proxyData) {
+                // Drop any open tab for this document before it is deleted.
+                if (UBApplication::boardController)
+                    UBApplication::boardController->closeDocumentTabForProxy(proxyData);
                 UBPersistenceManager::persistenceManager()->deleteDocument(proxyData);
             }
         }

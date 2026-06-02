@@ -31,6 +31,10 @@
 #include <QToolTip>
 #include <QStackedLayout>
 #include <QStyle>
+#include <QTabBar>
+#include <QToolBar>
+#include <QToolButton>
+#include <QHBoxLayout>
 
 #include "UBMainWindow.h"
 #include "core/UBApplication.h"
@@ -103,6 +107,116 @@ UBMainWindow::UBMainWindow(QWidget *parent, Qt::WindowFlags flags)
     connect(actionMinimize, &QAction::triggered, this, [this]() {
         UBPlatformUtils::minimizeMainWindow(this);
     });
+
+    // --- Document tabs bar -------------------------------------------------
+    // A black bar above the grey board toolbar that lists every open document
+    // as a tab (multiple documents open at once). The tab bar itself is
+    // populated/driven by UBBoardController; here we only build and place it.
+    const int kTabBarHeight = 30;
+
+    mDocumentTabBar = new QTabBar(this);
+    mDocumentTabBar->setObjectName("documentTabBar");
+    mDocumentTabBar->setTabsClosable(false); // we install our own centered close button per tab
+    mDocumentTabBar->setMovable(true);
+    mDocumentTabBar->setExpanding(false);          // tabs keep natural width, left-aligned
+    mDocumentTabBar->setDrawBase(false);
+    // No scroll buttons: with them enabled the bar's minimum width collapses
+    // inside the toolbar, so it starves the tabs of room and clips/scrolls even
+    // a single tab. Disabling makes the bar claim its full natural width.
+    mDocumentTabBar->setUsesScrollButtons(false);
+    mDocumentTabBar->setElideMode(Qt::ElideRight);
+    mDocumentTabBar->setFocusPolicy(Qt::NoFocus);
+    // Do NOT fix the bar height: let it size to its tabs, and let the (fixed-
+    // height) toolbar vertically center it. The styles below also override the
+    // global OpenBoard.css QTabBar rules (height:14px, margin-top:6px, border)
+    // that were skewing the vertical alignment.
+    mDocumentTabBar->setStyleSheet(
+        "QTabBar { background:#1d1d1f; }"
+        "QTabBar::tab { background:#2b2b2e; color:#dddddd; border:none; height:22px;"
+        " padding:3px 6px 3px 12px; margin:0 2px 0 0; min-width:90px; max-width:240px;"
+        " border-top-left-radius:5px; border-top-right-radius:5px; }"
+        "QTabBar::tab:selected { background:#4a4a4f; color:#ffffff; }"
+        "QTabBar::tab:hover { background:#3a3a3e; }");
+
+    // "+" button: opens the Documents library so the user picks another doc.
+    QToolButton* addTabButton = new QToolButton(this);
+    addTabButton->setText(QStringLiteral("+"));
+    addTabButton->setToolTip(tr("Open another document"));
+    addTabButton->setAutoRaise(true);
+    addTabButton->setFocusPolicy(Qt::NoFocus);
+    addTabButton->setFixedHeight(kTabBarHeight);
+    addTabButton->setStyleSheet(
+        "QToolButton { color:#dddddd; font-size:16px; font-weight:bold; padding:0 10px; border:0; }"
+        "QToolButton:hover { color:#ffffff; }");
+    connect(addTabButton, &QToolButton::clicked, this, [this]() {
+        // "+" means: the next document I open should go into a NEW tab.
+        if (UBApplication::boardController)
+            UBApplication::boardController->setOpenNextInNewTab(true);
+        if (actionDocument)
+            actionDocument->trigger();
+    });
+
+    mDocumentTabsToolBar = new QToolBar(tr("Open Documents"), this);
+    mDocumentTabsToolBar->setObjectName("documentTabsToolBar");
+    mDocumentTabsToolBar->setMovable(false);
+    mDocumentTabsToolBar->setFloatable(false);
+    mDocumentTabsToolBar->setContextMenuPolicy(Qt::PreventContextMenu);
+    mDocumentTabsToolBar->setIconSize(QSize(16, 16));   // keep the toolbar row short
+    mDocumentTabsToolBar->setStyleSheet("QToolBar { background:#1d1d1f; border:0; padding:0; margin:0; spacing:0; }");
+    // Tab bar and "+" go directly into the toolbar as separate items. With
+    // scroll buttons disabled the bar's size hint equals the full width of all
+    // its tabs, so the toolbar gives it that width (every tab shows, left-
+    // anchored) and the "+" button sits immediately after the last tab.
+    mDocumentTabsToolBar->addWidget(mDocumentTabBar);
+    mDocumentTabsToolBar->addWidget(addTabButton);
+    if (mDocumentTabsToolBar->layout())
+    {
+        mDocumentTabsToolBar->layout()->setContentsMargins(0, 0, 0, 0);
+        mDocumentTabsToolBar->layout()->setSpacing(0);
+    }
+    mDocumentTabsToolBar->setFixedHeight(kTabBarHeight); // single compact line, no black bands
+    mDocumentTabsToolBar->hide(); // shown only in Board mode (see UBApplicationController)
+
+    // NOTE: actual placement in the toolbar area happens in
+    // placeDocumentTabsToolBar(), called from UBApplication::toolBarPositionChanged()
+    // AFTER the three mode toolbars are (re)added — otherwise that re-add scrambles
+    // our position and the bar ends up orphaned/invisible.
+}
+
+void UBMainWindow::placeDocumentTabsToolBar(Qt::ToolBarArea area)
+{
+    if (!mDocumentTabsToolBar)
+        return;
+
+    const bool wasVisible = mDocumentTabsToolBar->isVisible();
+
+    // Detach (if already placed) then put it on its own row directly above the
+    // board toolbar. On macOS this row sits just under the notch spacer
+    // (setMenuWidget lays out above all toolbars), giving the separate top bar
+    // that platform needs.
+    removeToolBar(mDocumentTabsToolBar);
+    addToolBar(area, mDocumentTabsToolBar);
+    insertToolBar(boardToolBar, mDocumentTabsToolBar);
+    insertToolBarBreak(boardToolBar);
+
+    mDocumentTabsToolBar->setVisible(wasVisible);
+}
+
+void UBMainWindow::refreshDocumentTabsLayout()
+{
+    if (mDocumentTabBar)
+        mDocumentTabBar->updateGeometry();
+    if (mDocumentTabsToolBar && mDocumentTabsToolBar->layout())
+    {
+        mDocumentTabsToolBar->layout()->invalidate();
+        mDocumentTabsToolBar->layout()->activate();
+    }
+}
+
+void UBMainWindow::setDocumentTabsVisible(bool visible)
+{
+    if (mDocumentTabsToolBar)
+        mDocumentTabsToolBar->setVisible(visible);
 }
 
 UBMainWindow::~UBMainWindow()

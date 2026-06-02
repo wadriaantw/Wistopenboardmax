@@ -55,6 +55,7 @@ class UBDesktopPalette : public UBActionPalette
         void uniboardClick();
         void customClick();
         void screenClick();
+        void mathClick();
 
 //#ifdef Q_OS_LINUX //TODO: check why this produces an error on linux if uncommented
         void refreshMask();
@@ -83,6 +84,7 @@ private:
         QAction *mMinimizeAction;
         QAction *mActionUniboard;
         QAction *mActionCustomSelect;
+        QAction *mActionMath;
         QAction* mActionTest;
 
 

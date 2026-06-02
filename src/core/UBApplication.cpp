@@ -491,6 +491,10 @@ void UBApplication::toolBarPositionChanged(QVariant topOrBottom)
     mainWindow->addToolBar(area, mainWindow->webToolBar);
     mainWindow->addToolBar(area, mainWindow->documentToolBar);
 
+    // Place the document-tabs bar AFTER the mode toolbars so it isn't scrambled
+    // by the re-adds above.
+    mainWindow->placeDocumentTabsToolBar(area);
+
     webController->showTabAtTop(topOrBottom.toBool());
 
 }
