@@ -7,19 +7,17 @@
 ;  HOW TO BUILD
 ;  ------------
 ;  1. Install Inno Setup (free, https://jrsoftware.org/isdl.php).
-;  2. (Optional but recommended) Download the VC++ 2022 x64 redistributable:
-;        https://aka.ms/vs/17/release/vc_redist.x64.exe
-;     and save it to:
+;  2. (REQUIRED) The VC++ 2022 x64 redistributable must sit next to this .iss:
 ;        C:\openboard-fork\packaging\vc_redist.x64.exe
-;     If the file is present the installer bundles it; if not the [Files]
-;     entry is skipped and the [Run] step is too. (See Check= clauses below.)
+;     (download: https://aka.ms/vs/17/release/vc_redist.x64.exe)
+;     It is always embedded in the installer; compilation fails if missing.
 ;  3. Open this .iss file in Inno Setup (double-click it) and press F9 (or
 ;     Build → Compile). The installer is written to:
 ;        C:\openboard-fork\packaging\Output\WistOpenboard-Setup.exe
 ; ===========================================================================
 
 #define MyAppName        "WistOpenboard"
-#define MyAppVersion     "2026.2"
+#define MyAppVersion     "2026.3"
 #define MyAppPublisher   "Adriaan Willemse"
 #define MyAppExeName     "OpenBoard.exe"
 #define MyAppId          "{{C9F5C5BD-2026-4E1A-9F88-D7E4A8C14BDE}"
@@ -60,10 +58,9 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 ; The entire deployed product folder (recursive).
 Source: "{#ProductDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Bundled VC++ 2022 redistributable (only if you placed the file next to this .iss).
-; `skipifsourcedoesntexist` lets the .iss still compile when the redist isn't
-; downloaded — the [Run] step below also has a Check= guard so it just no-ops.
-Source: "{#VCRedistFile}"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist; Check: VCRedistAvailable
+; VC++ runtime is ALWAYS embedded in the installer (compile fails if the file
+; is missing next to this .iss — that's intentional, we want it bundled).
+Source: "{#VCRedistFile}"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Icons]
 Name: "{group}\{#MyAppName}";       Filename: "{app}\{#MyAppExeName}"
@@ -71,8 +68,8 @@ Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-; Silently install the VC++ runtime first — only if the bundled file shipped
-; AND the runtime isn't already on the machine. Skipping when already present
+; Silently install the VC++ runtime first — unless a new-enough runtime is
+; already on the machine. Skipping when already present
 ; avoids the "0x80070666 — Another version of this product is already
 ; installed" error dialog.
 Filename: "{tmp}\{#VCRedistFile}"; Parameters: "/install /quiet /norestart"; \
@@ -85,35 +82,34 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; \
     Flags: nowait postinstall skipifsilent
 
 [Code]
-function VCRedistAvailable: Boolean;
-begin
-  Result := FileExists(ExpandConstant('{src}\{#VCRedistFile}'));
-end;
-
+{ App is built with MSVC 2022 and needs VCRUNTIME140_1.dll, which ships with
+  the 2019+ runtime (14.20 or newer). Older 2015/2017 runtimes (14.0-14.1x)
+  register Major=14 too, so we must also check Minor. Microsoft writes these
+  registry values when the VC++ x64 runtime is present (64-bit view). }
 function VCRedistAlreadyInstalled: Boolean;
 var
   installed: Cardinal;
   major:     Cardinal;
+  minor:     Cardinal;
 begin
   Result := False;
-  // Microsoft writes these registry values when the VC++ 2015-2022 x64
-  // runtime is present. Reading from HKLM\SOFTWARE\... with the 64-bit view.
   if RegQueryDWordValue(HKLM64,
        'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64',
        'Installed', installed) and (installed = 1) then
   begin
     if RegQueryDWordValue(HKLM64,
          'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64',
-         'Major', major) then
+         'Major', major) and
+       RegQueryDWordValue(HKLM64,
+         'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64',
+         'Minor', minor) then
     begin
-      Result := (major >= 14);
-    end
-    else
-      Result := True;
+      Result := (major > 14) or ((major = 14) and (minor >= 20));
+    end;
   end;
 end;
 
 function NeedsVCRedistInstall: Boolean;
 begin
-  Result := VCRedistAvailable and (not VCRedistAlreadyInstalled);
+  Result := not VCRedistAlreadyInstalled;
 end;

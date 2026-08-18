@@ -1772,9 +1772,10 @@ void UBBoardController::restoreViewPositionOnCurrentScene() const
 {
     if (mActiveScene)
     {
-        if (mDocumentJustOpened)
+        if (mDocumentJustOpened || mResetViewToTopOnSceneChange)
         {
             mDocumentJustOpened = false;
+            mResetViewToTopOnSceneChange = false;
             const QSize page = mActiveScene->nominalSize();
             const QSize view = mControlView->size();
             if (page.width() > 0 && page.height() > 0 && view.width() > 0 && view.height() > 0)
@@ -1804,6 +1805,7 @@ void UBBoardController::previousScene()
     if (mActiveSceneIndex > 0)
     {
         QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
+        mResetViewToTopOnSceneChange = true;
         setActiveDocumentScene(mActiveSceneIndex - 1);
         QApplication::restoreOverrideCursor();
     }
@@ -1817,6 +1819,7 @@ void UBBoardController::nextScene()
     if (mActiveSceneIndex < selectedDocument()->pageCount() - 1)
     {
         QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
+        mResetViewToTopOnSceneChange = true;
         setActiveDocumentScene(mActiveSceneIndex + 1);
         QApplication::restoreOverrideCursor();
     }
@@ -1830,6 +1833,7 @@ void UBBoardController::firstScene()
     if (mActiveSceneIndex > 0)
     {
         QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
+        mResetViewToTopOnSceneChange = true;
         setActiveDocumentScene(0);
         QApplication::restoreOverrideCursor();
     }
@@ -1843,6 +1847,7 @@ void UBBoardController::lastScene()
     if (mActiveSceneIndex < selectedDocument()->pageCount() - 1)
     {
         QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
+        mResetViewToTopOnSceneChange = true;
         setActiveDocumentScene(selectedDocument()->pageCount() - 1);
         QApplication::restoreOverrideCursor();
     }

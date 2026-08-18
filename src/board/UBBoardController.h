@@ -350,6 +350,7 @@ class UBBoardController : public UBDocumentContainer
         QColor mMarkerColorOnLightBackground;
         qreal mSystemScaleFactor;
         mutable bool mDocumentJustOpened = false;
+        mutable bool mResetViewToTopOnSceneChange = false;
         bool mInInit = false;
         bool mInitialIsFreshlyCreated = true;
         bool mCleanupDone;

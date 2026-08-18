@@ -1,15 +1,17 @@
 ; ===========================================================================
 ;  WistOpenboard — Inno Setup script (Josh / coworker build)
-;  Same as WistOpenboard.iss but sources from C:\WistOpenboard-Coworker\
-;  which includes the 15 px touch-pan deadzone fix.
+;  Same as WistOpenboard.iss. Historically sourced from C:\WistOpenboard-Coworker\
+;  (which carried the touch-pan deadzone fix before it was merged into main);
+;  the fix is now in the main source, so both scripts build from the same
+;  deployed product folder.
 ; ===========================================================================
 
 #define MyAppName        "WistOpenboard"
-#define MyAppVersion     "2026.2"
+#define MyAppVersion     "2026.3"
 #define MyAppPublisher   "Adriaan Willemse"
 #define MyAppExeName     "OpenBoard.exe"
 #define MyAppId          "{{C9F5C5BD-2026-4E1A-9F88-D7E4A8C14BDE}"
-#define ProductDir       "C:\WistOpenboard-Coworker"
+#define ProductDir       "C:\openboard-fork\build\build\win32\release\product"
 #define VCRedistFile     "vc_redist.x64.exe"
 
 [Setup]
@@ -45,7 +47,9 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 [Files]
 Source: "{#ProductDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-Source: "{#VCRedistFile}"; DestDir: "{tmp}"; Flags: deleteafterinstall skipifsourcedoesntexist; Check: VCRedistAvailable
+; VC++ runtime is ALWAYS embedded in the installer (compile fails if the file
+; is missing next to this .iss — that's intentional, we want it bundled).
+Source: "{#VCRedistFile}"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Icons]
 Name: "{group}\{#MyAppName}";       Filename: "{app}\{#MyAppExeName}"
@@ -62,15 +66,14 @@ Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; \
     Flags: nowait postinstall skipifsilent
 
 [Code]
-function VCRedistAvailable: Boolean;
-begin
-  Result := FileExists(ExpandConstant('{src}\{#VCRedistFile}'));
-end;
-
+{ App is built with MSVC 2022 and needs VCRUNTIME140_1.dll, which ships with
+  the 2019+ runtime (14.20 or newer). Older 2015/2017 runtimes (14.0-14.1x)
+  register Major=14 too, so we must also check Minor. }
 function VCRedistAlreadyInstalled: Boolean;
 var
   installed: Cardinal;
   major:     Cardinal;
+  minor:     Cardinal;
 begin
   Result := False;
   if RegQueryDWordValue(HKLM64,
@@ -79,16 +82,17 @@ begin
   begin
     if RegQueryDWordValue(HKLM64,
          'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64',
-         'Major', major) then
+         'Major', major) and
+       RegQueryDWordValue(HKLM64,
+         'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64',
+         'Minor', minor) then
     begin
-      Result := (major >= 14);
-    end
-    else
-      Result := True;
+      Result := (major > 14) or ((major = 14) and (minor >= 20));
+    end;
   end;
 end;
 
 function NeedsVCRedistInstall: Boolean;
 begin
-  Result := VCRedistAvailable and (not VCRedistAlreadyInstalled);
+  Result := not VCRedistAlreadyInstalled;
 end;
