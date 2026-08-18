@@ -108,6 +108,7 @@ UBBoardView::UBBoardView (UBBoardController* pController, QWidget* pParent, bool
     , mLongPressInterval(350)
     , mIsDragInProgress(false)
     , mMultipleSelectionIsEnabled(false)
+    , mContinuousScroll(false)
     , bIsControl(isControl)
     , bIsDesktop(isDesktop)
 {
@@ -135,6 +136,7 @@ UBBoardView::UBBoardView (UBBoardController* pController, int pStartLayer, int p
     , mLongPressInterval(350)
     , mIsDragInProgress(false)
     , mMultipleSelectionIsEnabled(false)
+    , mContinuousScroll(false)
     , bIsControl(isControl)
     , bIsDesktop(isDesktop)
 {
@@ -1514,6 +1516,268 @@ void UBBoardView::moveRubberedItems(QPointF movingVector)
     scene()->invalidate(invalidateRect);
 }
 
+// WistOpenboard fork: toggle continuous vertical scrolling across all pages.
+// In continuous mode the view is free to scroll beyond the bounds of the single
+// active page; the neighbouring pages are painted in drawBackground() and the
+// live scene is swapped as pages cross the viewport centre (see scrollContentsBy).
+
+// ---------------------------------------------------------------------------
+//  WistOpenboard fork: continuous vertical scrolling across all pages.
+//
+//  A QGraphicsView can only ever display one QGraphicsScene, and in OpenBoard
+//  one scene == one page. Rather than replace the single control view with a
+//  stack of views (which every tool, delegate and palette would have to learn
+//  about), continuous mode keeps exactly one live scene -- the page nearest the
+//  viewport centre -- and paints its neighbours from cached pixmaps behind it.
+//  Scrolling past the halfway point promotes the next page to be the live one
+//  and re-anchors the scroll offset so the transition is seamless.
+// ---------------------------------------------------------------------------
+
+static const qreal sContinuousPageGap = 40.0;   // scene units between pages
+
+qreal UBBoardView::continuousStride() const
+{
+    auto s = const_cast<UBBoardView*>(this)->scene();
+    if (!s)
+        return 0.0;
+
+    const QSize nominal = s->nominalSize();
+    if (!nominal.isValid() || nominal.height() <= 0)
+        return 0.0;
+
+    return nominal.height() + sContinuousPageGap;
+}
+
+// Page j is drawn (j - activeIndex) strides below the active page, whose own
+// scene coordinates are centred on the origin. Invert that to go from a scene
+// y coordinate back to a page index.
+int UBBoardView::pageIndexAtSceneY(qreal y) const
+{
+    const qreal stride = continuousStride();
+    if (stride <= 0.0 || !mController)
+        return -1;
+
+    return mController->activeSceneIndex() + qRound(y / stride);
+}
+
+void UBBoardView::updateContinuousSceneRect()
+{
+    auto s = scene();
+    if (!s || !mController)
+        return;
+
+    if (!mContinuousScroll)
+    {
+        setSceneRect(QRectF());     // back to automatic (single page) bounds
+        return;
+    }
+
+    auto doc = mController->selectedDocument();
+    const QSize page = s->nominalSize();
+    const qreal stride = continuousStride();
+
+    if (!doc || !page.isValid() || stride <= 0.0)
+        return;
+
+    const int count = doc->pageCount();
+    if (count <= 0)
+        return;
+
+    const qreal top    = -page.height() / 2.0 - mController->activeSceneIndex() * stride;
+    const qreal height = (count - 1) * stride + page.height();
+
+    // Pad generously around the strip. Without this the scene rect clamps the
+    // scrollbars to exactly the page box, which makes it impossible to pan the
+    // document sideways or overscroll past the first/last page the way the
+    // single-page mode allows.
+    const qreal padX = page.width();
+    const qreal padY = page.height();
+
+    setSceneRect(QRectF(-page.width() / 2.0 - padX,
+                        top - padY,
+                        page.width() + 2 * padX,
+                        height + 2 * padY));
+}
+
+// Render page `index` off-screen into the pixmap cache. Never called from the
+// paint path directly -- drawBackground() defers it through a zero timer,
+// because loading a scene can hit the disk.
+void UBBoardView::ensureStripPixmap(int index)
+{
+    if (mStripPixmaps.contains(index) || !mController)
+        return;
+
+    auto doc = mController->selectedDocument();
+    if (!doc || index < 0 || index >= doc->pageCount())
+        return;
+
+    auto pageScene = UBPersistenceManager::persistenceManager()->loadDocumentScene(doc, index, false);
+    if (!pageScene)
+        return;
+
+    const QSize nominal = pageScene->nominalSize();
+    if (!nominal.isValid() || nominal.width() <= 0)
+        return;
+
+    const int targetW = qBound(320, viewport()->width(), 2048);
+    const int targetH = qRound(targetW * qreal(nominal.height()) / qreal(nominal.width()));
+
+    QPixmap pm(targetW, targetH);
+    pm.fill(pageScene->isDarkBackground() ? Qt::black : Qt::white);
+
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing, true);
+    p.setRenderHint(QPainter::SmoothPixmapTransform, true);
+
+    const QRectF source(-nominal.width() / 2.0, -nominal.height() / 2.0,
+                        nominal.width(), nominal.height());
+    pageScene->render(&p, QRectF(0, 0, targetW, targetH), source);
+    p.end();
+
+    mStripPixmaps.insert(index, pm);
+    viewport()->update();
+}
+
+void UBBoardView::drawContinuousNeighbours(QPainter* painter, const QRectF& rect)
+{
+    auto s = scene();
+    if (!mContinuousScroll || !s || !mController)
+        return;
+
+    auto doc = mController->selectedDocument();
+    const QSize page = s->nominalSize();
+    const qreal stride = continuousStride();
+
+    if (!doc || !page.isValid() || stride <= 0.0)
+        return;
+
+    const int active = mController->activeSceneIndex();
+    const int count  = doc->pageCount();
+
+    int first = pageIndexAtSceneY(rect.top());
+    int last  = pageIndexAtSceneY(rect.bottom());
+    if (first < 0 || last < 0)
+        return;
+
+    first = qMax(0, first - 1);
+    last  = qMin(count - 1, last + 1);
+
+    const qreal penWidth = 2.0 / qMax(0.0001, transform().m11());
+
+    for (int j = first; j <= last; ++j)
+    {
+        if (j == active)
+            continue;                       // the live scene paints itself
+
+        const QRectF pageRect(-page.width() / 2.0,
+                              -page.height() / 2.0 + (j - active) * stride,
+                              page.width(), page.height());
+
+        if (!pageRect.intersects(rect))
+            continue;
+
+        const QPixmap pm = mStripPixmaps.value(j);
+
+        if (pm.isNull())
+        {
+            // Not rendered yet: show the blank page and fetch it out-of-band.
+            painter->fillRect(pageRect, s->isDarkBackground() ? Qt::black : Qt::white);
+            QTimer::singleShot(0, this, [this, j]() { ensureStripPixmap(j); });
+        }
+        else
+        {
+            painter->drawPixmap(pageRect, pm, QRectF(pm.rect()));
+        }
+
+        painter->setPen(QPen(QColor(128, 128, 128), penWidth));
+        painter->setBrush(Qt::NoBrush);
+        painter->drawRect(pageRect);
+    }
+}
+
+// Promote whichever page now sits under the viewport centre to be the live
+// scene, then shift the scroll position by the same amount so nothing appears
+// to move. Guarded against re-entry: setActiveDocumentScene() scrolls too.
+void UBBoardView::promoteToPage(int target)
+{
+    if (!mContinuousScroll || mSwappingScene || !mController)
+        return;
+
+    auto doc = mController->selectedDocument();
+    const qreal stride = continuousStride();
+    if (!doc || stride <= 0.0 || doc->pageCount() <= 0)
+        return;
+
+    target = qBound(0, target, doc->pageCount() - 1);
+    const int active = mController->activeSceneIndex();
+    if (target == active)
+        return;
+
+    mSwappingScene = true;
+
+    // In continuous mode the zoom level belongs to the view, not to an
+    // individual page -- the teacher is looking at one long strip. Carry the
+    // current transform across the swap, otherwise setActiveDocumentScene()
+    // hands over to restoreViewPositionOnCurrentScene(), which would reset the
+    // zoom to whatever was last saved on the page being scrolled into.
+    const QTransform keptTransform = transform();
+    const QPointF centre = mapToScene(viewport()->rect().center());
+    const QPointF anchor = centre - QPointF(0, (target - active) * stride);
+
+    mController->persistViewPositionOnCurrentScene();
+    mController->setActiveDocumentScene(target);
+
+    setTransform(keptTransform);
+    mStripPixmaps.remove(target);           // it is the live scene now
+    updateContinuousSceneRect();
+    centerOn(anchor);
+
+    // Keeps the page-number readout and the thumbnail sidebar in step; the
+    // sidebar already listens to pageSelectionChanged() and scrolls itself.
+    mController->notifyPageSelectionChanged();
+
+    mSwappingScene = false;
+}
+
+// Promote whichever page now sits under the viewport centre to be the live scene.
+void UBBoardView::maybeSwapActivePage()
+{
+    if (!mContinuousScroll || mSwappingScene || !mController)
+        return;
+
+    const QPointF centre = mapToScene(viewport()->rect().center());
+    promoteToPage(pageIndexAtSceneY(centre.y()));
+}
+
+void UBBoardView::refreshContinuousLayout()
+{
+    if (!mContinuousScroll || mSwappingScene)
+        return;
+
+    updateContinuousSceneRect();
+    viewport()->update();
+}
+
+void UBBoardView::setContinuousScroll(bool enabled)
+{
+    if (mContinuousScroll == enabled)
+        return;
+
+    mContinuousScroll = enabled;
+
+    // Vertical scrollbar is only meaningful while the strip is taller than one page.
+    setVerticalScrollBarPolicy(enabled ? Qt::ScrollBarAsNeeded : Qt::ScrollBarAlwaysOff);
+
+    mStripPixmaps.clear();
+    updateContinuousSceneRect();
+
+    if (scene())
+        scene()->controlViewportChanged();
+
+    resetCachedContent();
+    viewport()->update();
+}
+
 void UBBoardView::setMultiselection(bool enable)
 {
     mMultipleSelectionIsEnabled = enable;
@@ -1646,6 +1910,12 @@ void UBBoardView::longPressEvent()
 
 void UBBoardView::mousePressEvent (QMouseEvent *event)
 {
+    // WistOpenboard fork: in continuous mode a press may land on a page that
+    // is only painted as a cached pixmap. Promote it to the live scene first so
+    // the stroke goes to the page the teacher actually touched.
+    if (mContinuousScroll && !mSwappingScene && mController)
+        promoteToPage(pageIndexAtSceneY(mapToScene(event->pos()).y()));
+
     // Space-hold pan: if Space is held when the user presses the mouse,
     // start a pan instead of whatever the active tool would normally do.
     if (mSpaceHeld && event->button() == Qt::LeftButton) {
@@ -2765,6 +3035,11 @@ void UBBoardView::drawBackground (QPainter *painter, const QRectF &rect)
     // draw the background of the QGraphicsScene
     QGraphicsView::drawBackground(painter, rect);
 
+    // WistOpenboard fork: in continuous mode the pages above and below the
+    // live one are painted here, behind the active scene's own items.
+    if (mContinuousScroll && !testAttribute(Qt::WA_TranslucentBackground))
+        drawContinuousNeighbours(painter, rect);
+
     if (testAttribute (Qt::WA_TranslucentBackground))
     {
         return;
@@ -2851,6 +3126,11 @@ void UBBoardView::scrollContentsBy(int dx, int dy)
     QGraphicsView::scrollContentsBy(dx, dy);
     if (scene())
         scene()->controlViewportChanged();
+
+    // WistOpenboard fork: deferred so we never swap the scene from inside
+    // Qt's own scroll handling.
+    if (mContinuousScroll && !mSwappingScene)
+        QTimer::singleShot(0, this, [this]() { maybeSwapActivePage(); });
     // Keep the floating page-nav pill pinned to top-center after scroll/zoom.
     positionPageButtons();
 }

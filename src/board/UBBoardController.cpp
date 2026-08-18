@@ -896,6 +896,37 @@ void UBBoardController::setupToolbar()
         mMainWindow->boardToolBar->addWidget(clockLabel);
     }
 
+    //--- Continuous page scrolling toggle --------------------------------//
+    // WistOpenboard fork: teachers who prefer scrolling through the whole
+    // document vertically can switch it on here; those who prefer one page at a
+    // time leave it off. The choice is remembered between sessions.
+    {
+        QToolButton *scrollBtn = new QToolButton(mMainWindow->boardToolBar);
+        scrollBtn->setCheckable(true);
+        scrollBtn->setText(QStringLiteral("Scroll"));
+        scrollBtn->setToolTip(tr("Scroll continuously through all pages"));
+        scrollBtn->setAutoRaise(true);
+        scrollBtn->setFixedSize(58, 22);
+        scrollBtn->setStyleSheet(
+            "QToolButton { color: white; background: transparent; border: none;"
+            " font-size: 12px; padding: 0px; }"
+            "QToolButton:hover { background: rgba(255,255,255,40); border-radius: 3px; }"
+            "QToolButton:checked { background: rgba(255,255,255,70); border-radius: 3px; }");
+
+        const bool scrollOn = UBSettings::settings()->boardContinuousScroll->get().toBool();
+        scrollBtn->setChecked(scrollOn);
+        if (mControlView)
+            mControlView->setContinuousScroll(scrollOn);
+
+        connect(scrollBtn, &QToolButton::toggled, this, [this](bool on){
+            UBSettings::settings()->boardContinuousScroll->set(on);
+            if (mControlView)
+                mControlView->setContinuousScroll(on);
+        });
+
+        mMainWindow->boardToolBar->addWidget(scrollBtn);
+    }
+
     //--- Compact window controls (Minimize / Maximize / Close) ------------//
     // Hide the bulky text-under-icon actionMinimize / actionQuit from the
     // toolbars and replace them with three flat Windows-titlebar-style chips
@@ -2413,6 +2444,7 @@ std::shared_ptr<UBGraphicsScene> UBBoardController::setActiveDocumentScene(std::
             rebindUndoStack(targetStack);
 
         mControlView->setScene(mActiveScene.get());
+        mControlView->refreshContinuousLayout(); // WistOpenboard fork: restack the continuous-scroll strip
         connect(UBApplication::undoStack.data(), SIGNAL(indexChanged(int)), mControlView->scene().get(), SLOT(updateSelectionFrameWrapper(int)));
 
         mDisplayView->setScene(mActiveScene.get());

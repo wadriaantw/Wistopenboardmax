@@ -84,6 +84,11 @@ class UBBoardController : public UBDocumentContainer
 
         std::shared_ptr<UBGraphicsScene> activeScene() const;
         int activeSceneIndex() const;
+
+        // WistOpenboard fork: lets the board view re-announce the current page
+        // after continuous scrolling promotes a new one, so the page readout and
+        // the thumbnail sidebar follow along.
+        void notifyPageSelectionChanged() { emit pageSelectionChanged(activeSceneIndex()); }
         void setActiveSceneIndex(int i);
         void closing();
 

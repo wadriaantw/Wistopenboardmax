@@ -292,6 +292,7 @@ void UBSettings::init()
     boardInterpolatePenStrokes = new UBSetting(this, "Board", "InterpolatePenStrokes", true);
     boardSimplifyPenStrokes = new UBSetting(this, "Board", "SimplifyPenStrokes", true);
     boardSnapToShape = new UBSetting(this, "Board", "SnapToShape", false); // WistOpenboard fork
+    boardContinuousScroll = new UBSetting(this, "Board", "ContinuousScroll", false); // WistOpenboard fork
     boardSimplifyPenStrokesThresholdAngle = new UBSetting(this, "Board", "SimplifyPenStrokesThresholdAngle", 2);
     boardSimplifyPenStrokesThresholdWidthDifference = new UBSetting(this, "Board", "SimplifyPenStrokesThresholdWidthDifference", 2.0);
 

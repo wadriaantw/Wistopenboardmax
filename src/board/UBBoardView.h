@@ -35,6 +35,8 @@
 #include <QGraphicsView>
 #include <QRubberBand>
 
+#include <QHash>
+#include <QPixmap>
 #include "core/UB.h"
 #include "domain/UBGraphicsDelegateFrame.h"
 
@@ -64,6 +66,16 @@ public:
     void moveRubberedItems(QPointF movingVector);
 
     void setMultiselection(bool enable);
+
+    // WistOpenboard fork: continuous vertical scrolling across all pages of the
+    // document, instead of showing a single page at a time. Only the page nearest
+    // the viewport centre is a live scene; neighbours are painted from cached
+    // pixmaps in drawBackground().
+    void setContinuousScroll(bool enabled);
+    bool isContinuousScroll() const { return mContinuousScroll; }
+    // Recompute the scrollable strip after the active page changes by any other
+    // route (page buttons, thumbnail click, document switch).
+    void refreshContinuousLayout();
     bool isMultipleSelectionEnabled() { return mMultipleSelectionIsEnabled; }
 
     void setBoxing(const QMargins& margins);
@@ -226,6 +238,20 @@ private:
 
     bool mIsDragInProgress;
     bool mMultipleSelectionIsEnabled;
+    bool mContinuousScroll; // WistOpenboard fork
+    // WistOpenboard fork: continuous-scroll support. Neighbouring pages are
+    // cached as pixmaps keyed by page index and blitted in drawBackground();
+    // only the page nearest the viewport centre is ever a live scene.
+    QHash<int, QPixmap> mStripPixmaps;
+    bool mSwappingScene = false;
+
+    qreal continuousStride() const;
+    void  updateContinuousSceneRect();
+    int   pageIndexAtSceneY(qreal y) const;
+    void  ensureStripPixmap(int index);
+    void  promoteToPage(int target);
+    void  maybeSwapActivePage();
+    void  drawContinuousNeighbours(QPainter* painter, const QRectF& rect);
 
     // finger-pan / pinch-zoom state
     bool mIsTouchPanning;
