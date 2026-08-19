@@ -37,6 +37,8 @@
 
 #include "UBFloatingPalette.h"
 
+#include <QTimer>
+
 class UBActionPaletteButton;
 
 class UBActionPalette : public UBFloatingPalette
@@ -122,10 +124,26 @@ class UBActionPaletteButton : public QToolButton
     signals:
         void doubleClicked();
 
+        // WistOpenboard fork: press and hold, for tools that carry properties
+        // (pen colour and width). Cancelled if the finger moves or lifts first,
+        // so an ordinary tap still selects the tool.
+        void longPressed();
+
     protected:
         virtual void mouseDoubleClickEvent(QMouseEvent *event);
         virtual bool hitButton(const QPoint &pos) const;
+        virtual void mousePressEvent(QMouseEvent *event) override;
+        virtual void mouseReleaseEvent(QMouseEvent *event) override;
+        virtual void mouseMoveEvent(QMouseEvent *event) override;
 
+        virtual bool event(QEvent* event) override;
+
+    private:
+        void fireLongPress();
+
+        QTimer mLongPressTimer;
+        QPoint mPressPos;
+        bool mLongPressFired = false;
 };
 
 #endif /* UBACTIONPALETTE_H_ */

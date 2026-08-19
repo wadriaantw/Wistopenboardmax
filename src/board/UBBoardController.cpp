@@ -927,91 +927,12 @@ void UBBoardController::setupToolbar()
         mMainWindow->boardToolBar->addWidget(scrollBtn);
     }
 
-    //--- Compact window controls (Minimize / Maximize / Close) ------------//
-    // Hide the bulky text-under-icon actionMinimize / actionQuit from the
-    // toolbars and replace them with three flat Windows-titlebar-style chips
-    // appended to each toolbar's right edge. Icons are drawn as Unicode line
-    // glyphs so they don't depend on theme pixmaps.
-    {
-        mMainWindow->actionMinimize->setVisible(false);
-        mMainWindow->actionQuit->setVisible(false);
-
-        const QString baseCss =
-            "QToolButton { color: white; background: transparent; border: none;"
-            " font-size: 14px; padding: 0px; }"
-            "QToolButton:hover { background: rgba(255,255,255,40); border-radius: 3px; }";
-        const QString closeCss =
-            "QToolButton { color: white; background: transparent; border: none;"
-            " font-size: 14px; padding: 0px; }"
-            "QToolButton:hover { background: #e81123; border-radius: 3px; }";
-
-        auto addChips = [this, baseCss, closeCss](QToolBar *bar, bool addRightSpacer){
-            if (!bar) return;
-
-            if (addRightSpacer) {
-                QWidget *spacer = new QWidget(bar);
-                spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-                bar->addWidget(spacer);
-            }
-
-            QToolButton *minBtn = new QToolButton(bar);
-            minBtn->setText(QString::fromUtf8("\xE2\x94\x80")); // ─
-            minBtn->setToolTip(tr("Minimize"));
-            minBtn->setAutoRaise(true);
-            minBtn->setFixedSize(34, 22);
-            minBtn->setStyleSheet(baseCss);
-            connect(minBtn, &QToolButton::clicked, this, [](){
-                // Route through the platform helper — on macOS frameless
-                // windows showMinimized() is a no-op (no titlebar miniaturize
-                // button to drive). UBPlatformUtils::minimizeMainWindow
-                // forces NSWindowStyleMaskMiniaturizable + -miniaturize:, and
-                // falls back to [NSApp hide:nil] if that's still refused.
-                if (UBApplication::mainWindow) {
-                    UBPlatformUtils::minimizeMainWindow(UBApplication::mainWindow);
-                }
-            });
-            bar->addWidget(minBtn);
-
-            QToolButton *maxBtn = new QToolButton(bar);
-            maxBtn->setText(QString::fromUtf8("\xE2\x96\xA1")); // ▢
-            maxBtn->setToolTip(tr("Maximize"));
-            maxBtn->setAutoRaise(true);
-            maxBtn->setFixedSize(34, 22);
-            maxBtn->setStyleSheet(baseCss);
-            connect(maxBtn, &QToolButton::clicked, this, [maxBtn](){
-                QWidget *w = UBApplication::mainWindow;
-                if (!w) return;
-                if (w->isMaximized()) {
-                    w->showNormal();
-                    maxBtn->setText(QString::fromUtf8("\xE2\x96\xA1")); // ▢
-                    maxBtn->setToolTip(tr("Maximize"));
-                } else {
-                    w->showMaximized();
-                    maxBtn->setText(QString::fromUtf8("\xE2\xA7\x89")); // ⧉
-                    maxBtn->setToolTip(tr("Restore"));
-                }
-            });
-            bar->addWidget(maxBtn);
-
-            QToolButton *closeBtn = new QToolButton(bar);
-            closeBtn->setText(QString::fromUtf8("\xC3\x97")); // ×
-            closeBtn->setToolTip(tr("Close"));
-            closeBtn->setAutoRaise(true);
-            closeBtn->setFixedSize(34, 22);
-            closeBtn->setStyleSheet(closeCss);
-            connect(closeBtn, &QToolButton::clicked, this, [](){
-                if (UBApplication::mainWindow) UBApplication::mainWindow->close();
-            });
-            bar->addWidget(closeBtn);
-        };
-
-        // boardToolBar already has an expanding spacer inserted before its clock,
-        // so the chips inherit right-alignment from that. Web and document toolbars
-        // need their own spacer so the chips stick to the window's right edge.
-        addChips(mMainWindow->boardToolBar, false);
-        addChips(mMainWindow->webToolBar, true);
-        addChips(mMainWindow->documentToolBar, true);
-    }
+    // WistOpenboard fork: the window title bar now provides minimise / maximise /
+    // close (window mode is the default), so the in-toolbar chips that used to
+    // duplicate them have been removed. The bulky text-under-icon actions stay
+    // hidden -- the title bar is the one place those controls live.
+    mMainWindow->actionMinimize->setVisible(false);
+    mMainWindow->actionQuit->setVisible(false);
 
     //-----------------------------------------------------------//
 

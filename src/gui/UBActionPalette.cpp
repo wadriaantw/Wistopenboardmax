@@ -30,6 +30,10 @@
 
 #include "UBActionPalette.h"
 
+#include <QApplication>
+#include <QGestureEvent>
+#include <QTapAndHoldGesture>
+
 #include "core/memcheck.h"
 
 UBActionPalette::UBActionPalette(QList<QAction*> actions, Qt::Orientation orientation, QWidget * parent)
@@ -289,6 +293,18 @@ UBActionPaletteButton::UBActionPaletteButton(QAction* action, QWidget * parent)
     setFocusPolicy(Qt::NoFocus);
 
     setObjectName("ubActionPaletteButton");
+
+    // WistOpenboard fork: press-and-hold support.
+    mLongPressTimer.setSingleShot(true);
+    mLongPressTimer.setInterval(450);
+    connect(&mLongPressTimer, &QTimer::timeout, this, [this]() { fireLongPress(); });
+
+    // On a touchscreen the synthesised mouse stream is unreliable for holds:
+    // Windows runs its own press-and-hold gesture and can deliver the release
+    // before our timer expires. Qt's recogniser understands real touch, so grab
+    // that as well and let whichever notices first win.
+    grabGesture(Qt::TapAndHoldGesture);
+    QTapAndHoldGesture::setTimeout(450);
 }
 
 
@@ -297,6 +313,63 @@ UBActionPaletteButton::~UBActionPaletteButton()
 
 }
 
+
+// WistOpenboard fork: a hold that does not move opens the tool's properties;
+// anything shorter, or any drag, falls through to the normal click handling so
+// tapping still just picks the tool.
+void UBActionPaletteButton::fireLongPress()
+{
+    if (mLongPressFired)
+        return;                 // mouse timer and gesture can both fire; emit once
+
+    mLongPressFired = true;
+    mLongPressTimer.stop();
+    emit longPressed();
+}
+
+bool UBActionPaletteButton::event(QEvent* event)
+{
+    if (event->type() == QEvent::Gesture)
+    {
+        QGestureEvent* gestureEvent = static_cast<QGestureEvent*>(event);
+
+        if (QGesture* hold = gestureEvent->gesture(Qt::TapAndHoldGesture))
+        {
+            if (hold->state() == Qt::GestureFinished)
+            {
+                fireLongPress();
+                gestureEvent->accept(Qt::TapAndHoldGesture);
+                return true;
+            }
+        }
+    }
+
+    return QToolButton::event(event);
+}
+
+void UBActionPaletteButton::mousePressEvent(QMouseEvent *event)
+{
+    mPressPos = event->pos();
+    mLongPressFired = false;
+    mLongPressTimer.start();
+    QToolButton::mousePressEvent(event);
+}
+
+void UBActionPaletteButton::mouseReleaseEvent(QMouseEvent *event)
+{
+    mLongPressTimer.stop();
+    QToolButton::mouseReleaseEvent(event);
+}
+
+void UBActionPaletteButton::mouseMoveEvent(QMouseEvent *event)
+{
+    // A fingertip wanders far more than a mouse does while holding still, so be
+    // considerably more forgiving than the plain drag threshold.
+    if ((event->pos() - mPressPos).manhattanLength() >= 3 * QApplication::startDragDistance())
+        mLongPressTimer.stop();
+
+    QToolButton::mouseMoveEvent(event);
+}
 
 void UBActionPaletteButton::mouseDoubleClickEvent(QMouseEvent *event)
 {

@@ -358,6 +358,14 @@ void UBGraphicsTextItemDelegate::pickColor()
             {
                 delegated()->setDefaultTextColor(selectedColor);
                 UBGraphicsTextItem::lastUsedTextColor = selectedColor;
+
+                // WistOpenboard fork: persist it. setDefaultTextColor() alone is not
+                // saved -- toHtml() only carries per-character formatting, and with
+                // nothing selected there is no per-character colour to carry.
+                if (delegated()->scene() && delegated()->scene()->isDarkBackground())
+                    delegated()->setColorOnDarkBackground(selectedColor);
+                else
+                    delegated()->setColorOnLightBackground(selectedColor);
             }
 
             delegated()->setSelected(true);

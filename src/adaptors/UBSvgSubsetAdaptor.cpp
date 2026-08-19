@@ -2886,6 +2886,20 @@ UBGraphicsTextItem* UBSvgSubsetAdaptor::UBSvgSubsetReader::textItemFromSvg()
                     text = mXmlReader.readElementText();
                     textItem->setHtml(text);
 
+                    // WistOpenboard fork: reinstate the item colour. toHtml() only
+                    // carries per-character formatting, so a colour applied to the
+                    // whole item (defaultTextColor) is not in the markup -- without
+                    // this the text reverts to the constructor default, which is
+                    // black on a fresh run.
+                    {
+                        const QColor storedColor = UBSettings::settings()->isDarkBackground()
+                                ? textItem->colorOnDarkBackground()
+                                : textItem->colorOnLightBackground();
+
+                        if (storedColor.isValid())
+                            textItem->setDefaultTextColor(storedColor);
+                    }
+
                     // Fonts sizes are not displayed the same across platforms: e.g a text item with the same
                     // font size (in Pts) is displayed smaller on Linux than Windows. This messes up layouts
                     // when importing documents created on another computer, so if a font is being displayed

@@ -31,9 +31,43 @@
 #define UBSTYLUSPALLETTE_H_
 
 #include <QButtonGroup>
+#include <QGridLayout>
+#include <QWidget>
+#include <QList>
+#include <QPointer>
+
+class QToolBar;
+class QSlider;
+class QLabel;
 
 #include "UBActionPalette.h"
 
+
+
+// WistOpenboard fork: the pen's colour and width, reachable by holding the pen
+// button on the floating palette. Matters most in full screen, where the top
+// toolbar that normally carries these is hidden.
+class UBPenPropertiesPopup : public QWidget
+{
+    Q_OBJECT
+
+    public:
+        explicit UBPenPropertiesPopup(QWidget* parent = nullptr);
+
+        // Re-read colour and width from settings before showing.
+        void refresh();
+
+    private slots:
+        void pickCustomColour();
+        void widthChanged(int sliderValue);
+
+    private:
+        void buildColourGrid();
+
+        QGridLayout* mColourGrid = nullptr;
+        QSlider* mWidthSlider = nullptr;
+        QLabel* mWidthPreview = nullptr;
+};
 
 class UBStylusPalette : public UBActionPalette
 {
@@ -49,8 +83,22 @@ class UBStylusPalette : public UBActionPalette
 
         void stylusToolDoubleClicked();
 
+        // WistOpenboard fork: hide the window title bar and the top toolbars so the
+        // whole screen is board. The floating palette stays, which is how the
+        // teacher gets back out again.
+        void toggleFullScreen(bool on);
+
+        // WistOpenboard fork: press and hold the pen to pick colour and width
+        // without going up to the top toolbar -- which in full screen is hidden.
+        void showPenProperties();
+
     private:
         int mLastSelectedId;
+
+        QAction* mFullScreenAction = nullptr;
+        UBPenPropertiesPopup* mPenPropertiesPopup = nullptr;
+        QList<QPointer<QToolBar> > mHiddenToolBars;   // restored on leaving full screen
+        bool mWasMaximized = false;
 
     signals:
         void stylusToolDoubleClicked(int tool);

@@ -101,6 +101,17 @@ void UBGraphicsTextItem::initFontProperties()
     }
 
     setDefaultTextColor(UBGraphicsTextItem::lastUsedTextColor);
+
+    // WistOpenboard fork: keep the persisted colour in step with the one actually
+    // in use. defaultTextColor() is an item property and is NOT encoded by
+    // toHtml(), so unless it is recorded here it is lost on save and the text
+    // comes back in whatever lastUsedTextColor happens to be (black, on a fresh
+    // run) the next time the document is opened.
+    if (UBSettings::settings()->isDarkBackground())
+        setColorOnDarkBackground(UBGraphicsTextItem::lastUsedTextColor);
+    else
+        setColorOnLightBackground(UBGraphicsTextItem::lastUsedTextColor);
+
     format.setForeground(QBrush(UBGraphicsTextItem::lastUsedTextColor));
     curCursor.mergeCharFormat(format);
     setTextCursor(curCursor);
