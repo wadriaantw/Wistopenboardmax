@@ -314,7 +314,20 @@ UBStylusPalette::UBStylusPalette(QWidget *parent, Qt::Orientation orient)
     connect(mFullScreenAction, &QAction::toggled, this, &UBStylusPalette::toggleFullScreen);
     actions << mFullScreenAction;
 
-    mCollapseAction = new QAction(QIcon(":/images/toolbar/previous.png"), tr("Show fewer tools"), this);
+    // Three vertical dots, painted in code (no font or theme pixmap involved).
+    // The same icon serves both states -- dots read as "more" either way.
+    QPixmap dotsPixmap(24, 34);
+    dotsPixmap.fill(Qt::transparent);
+    {
+        QPainter p(&dotsPixmap);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setPen(Qt::NoPen);
+        p.setBrush(QColor(0x30, 0x30, 0x30));
+        for (int i = 0; i < 3; ++i)
+            p.drawEllipse(QPointF(12, 11 + i * 6), 2.2, 2.2);
+    }
+
+    mCollapseAction = new QAction(QIcon(dotsPixmap), tr("Show fewer tools"), this);
     mCollapseAction->setCheckable(true);
     mCollapseAction->setToolTip(tr("Collapse to pen and eraser"));
     mCollapseAction->setProperty("ungrouped", true);
@@ -322,18 +335,28 @@ UBStylusPalette::UBStylusPalette(QWidget *parent, Qt::Orientation orient)
     actions << mCollapseAction;
 
     setActions(actions);
-    setButtonIconSize(QSize(42, 42));
+    // WistOpenboard fork: 34px instead of the original 42px -- noticeably more
+    // compact while staying just above a usable fingertip target. Tune here if
+    // the smartboard digitizer proves coarser than the laptop screen.
+    setButtonIconSize(QSize(34, 34));
     groupActions();
 
     // Keep the collapse arrow visually small -- the whole point is a palette
     // that stays out of the way.
     if (UBActionPaletteButton* collapseButton = getButtonFromAction(mCollapseAction))
     {
-        collapseButton->setIconSize(QSize(14, 14));
-        collapseButton->setFixedSize(22, 22);
+        // Small ICON, big TARGET. The button is flat, so only the arrow is
+        // visible -- but the tappable area stays finger-sized. At 22x22 most
+        // touches missed and fell through to the palette background, whose
+        // mousePressEvent treats any left press as the start of a palette drag,
+        // so tapping the arrow appeared to do nothing at all.
+        collapseButton->setIconSize(QSize(24, 34));
+        collapseButton->setFixedSize(24, 34);   // narrow: the dots column needs no width
     }
 
     UBShortcutManager::shortcutManager()->addActionGroup(mActionGroup);
+
+    updateLayout();
 
     adjustSizeAndPosition();
 
@@ -384,6 +407,27 @@ UBStylusPalette::~UBStylusPalette()
     }
 }
 
+void UBStylusPalette::updateLayout()
+{
+    UBActionPalette::updateLayout();
+
+    // Margins hug the buttons on three sides; the LEADING edge keeps an 18px
+    // strip of background as the finger-drag handle -- left edge when the
+    // palette is horizontal, top edge when vertical. (First version put the
+    // strip on top unconditionally, which just made a horizontal bar taller.)
+    QBoxLayout* box = qobject_cast<QBoxLayout*>(layout());
+    const bool horizontal = box
+            && (box->direction() == QBoxLayout::LeftToRight
+                || box->direction() == QBoxLayout::RightToLeft);
+
+    if (horizontal)
+        layout()->setContentsMargins(18, 7, 7, 7);
+    else
+        layout()->setContentsMargins(7, 18, 7, 7);
+
+    layout()->setSpacing(4);
+}
+
 void UBStylusPalette::setCollapsed(bool collapsed)
 {
     UBMainWindow* mainWindow = UBApplication::mainWindow;
@@ -399,12 +443,17 @@ void UBStylusPalette::setCollapsed(bool collapsed)
 
     for (auto it = mMapActionToButton.constBegin(); it != mMapActionToButton.constEnd(); ++it)
     {
-        if (it.value())
-            it.value()->setVisible(!collapsed || alwaysShown.contains(it.key()));
+        if (!it.value())
+            continue;
+
+        const bool hideIt = collapsed && !alwaysShown.contains(it.key());
+
+        // The property is what actionChanged() honours; setVisible alone gets
+        // reverted by the next QAction::changed signal (see UBActionPalette).
+        it.value()->setProperty("collapsedHidden", hideIt);
+        it.value()->setVisible(!hideIt && it.key()->isVisible());
     }
 
-    mCollapseAction->setIcon(QIcon(collapsed ? ":/images/toolbar/next.png"
-                                             : ":/images/toolbar/previous.png"));
     mCollapseAction->setToolTip(collapsed ? tr("Show all tools")
                                           : tr("Collapse to pen and eraser"));
 
@@ -421,6 +470,11 @@ void UBStylusPalette::setCollapsed(bool collapsed)
     updateGeometry();
     resize(preferredSize());
     adjustSizeAndPosition();
+
+    // Expanding near the right screen edge grows the palette rightwards, off
+    // screen. adjustSizeAndPosition() only re-clamps when IT changes the size,
+    // and the resize above already did -- so clamp explicitly.
+    moveInsideParent(pos());
 }
 
 void UBStylusPalette::showPenProperties()

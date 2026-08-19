@@ -858,6 +858,56 @@ void UBBoardController::setupToolbar()
         mMainWindow->boardToolBar->insertSeparator(mMainWindow->actionErase);
     }
 
+    //--- Continuous page scrolling toggle --------------------------------//
+    // WistOpenboard fork: teachers who prefer scrolling through the whole
+    // document vertically can switch it on here; those who prefer one page at a
+    // time leave it off. The choice is remembered between sessions.
+    {
+        // Drawn in code so no theme pixmap is needed: a page with an up and a
+        // down arrow. Two states -- dark for normal, accent blue when active.
+        auto scrollPixmap = [](const QColor& color) {
+            QPixmap pm(44, 44);
+            pm.fill(Qt::transparent);
+            QPainter p(&pm);
+            p.setRenderHint(QPainter::Antialiasing, true);
+            QPen pen(color);
+            pen.setWidthF(3.0);
+            pen.setCapStyle(Qt::RoundCap);
+            pen.setJoinStyle(Qt::RoundJoin);
+            p.setPen(pen);
+            p.drawLine(QPointF(22, 8), QPointF(22, 36));      // shaft
+            p.drawLine(QPointF(22, 8), QPointF(15, 16));      // top arrowhead
+            p.drawLine(QPointF(22, 8), QPointF(29, 16));
+            p.drawLine(QPointF(22, 36), QPointF(15, 28));     // bottom arrowhead
+            p.drawLine(QPointF(22, 36), QPointF(29, 28));
+            p.end();
+            return pm;
+        };
+
+        QIcon scrollIcon;
+        scrollIcon.addPixmap(scrollPixmap(QColor(0x33, 0x33, 0x33)), QIcon::Normal, QIcon::Off);
+        scrollIcon.addPixmap(scrollPixmap(QColor(0x00, 0x78, 0xd7)), QIcon::Normal, QIcon::On);
+
+        QAction* scrollAction = new QAction(scrollIcon, tr("Scroll"), this);
+        scrollAction->setCheckable(true);
+        scrollAction->setToolTip(tr("Scroll continuously through all pages"));
+
+        const bool scrollOn = UBSettings::settings()->boardContinuousScroll->get().toBool();
+        scrollAction->setChecked(scrollOn);
+        if (mControlView)
+            mControlView->setContinuousScroll(scrollOn);
+
+        connect(scrollAction, &QAction::toggled, this, [this](bool on){
+            UBSettings::settings()->boardContinuousScroll->set(on);
+            if (mControlView)
+                mControlView->setContinuousScroll(on);
+        });
+
+        // A plain addAction: the toolbar gives it the same text-under-icon
+        // treatment as every other button.
+        mMainWindow->boardToolBar->addAction(scrollAction);
+    }
+
     //----------------------- Taiwan time clock -----------------//
     {
         // Expanding spacer so the clock + window-control chips that follow
@@ -894,37 +944,6 @@ void UBBoardController::setupToolbar()
         clockTimer->start();
 
         mMainWindow->boardToolBar->addWidget(clockLabel);
-    }
-
-    //--- Continuous page scrolling toggle --------------------------------//
-    // WistOpenboard fork: teachers who prefer scrolling through the whole
-    // document vertically can switch it on here; those who prefer one page at a
-    // time leave it off. The choice is remembered between sessions.
-    {
-        QToolButton *scrollBtn = new QToolButton(mMainWindow->boardToolBar);
-        scrollBtn->setCheckable(true);
-        scrollBtn->setText(QStringLiteral("Scroll"));
-        scrollBtn->setToolTip(tr("Scroll continuously through all pages"));
-        scrollBtn->setAutoRaise(true);
-        scrollBtn->setFixedSize(58, 22);
-        scrollBtn->setStyleSheet(
-            "QToolButton { color: white; background: transparent; border: none;"
-            " font-size: 12px; padding: 0px; }"
-            "QToolButton:hover { background: rgba(255,255,255,40); border-radius: 3px; }"
-            "QToolButton:checked { background: rgba(255,255,255,70); border-radius: 3px; }");
-
-        const bool scrollOn = UBSettings::settings()->boardContinuousScroll->get().toBool();
-        scrollBtn->setChecked(scrollOn);
-        if (mControlView)
-            mControlView->setContinuousScroll(scrollOn);
-
-        connect(scrollBtn, &QToolButton::toggled, this, [this](bool on){
-            UBSettings::settings()->boardContinuousScroll->set(on);
-            if (mControlView)
-                mControlView->setContinuousScroll(on);
-        });
-
-        mMainWindow->boardToolBar->addWidget(scrollBtn);
     }
 
     // WistOpenboard fork: the window title bar now provides minimise / maximise /

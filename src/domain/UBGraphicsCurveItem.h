@@ -69,9 +69,11 @@ class UBGraphicsCurveItem : public QGraphicsPathItem, public UBItem
         QVariant itemChange(GraphicsItemChange change, const QVariant& value) override;
 
     private:
-        enum Handle { HandleNone, HandleStart, HandleControl, HandleEnd, HandleBody };
+        enum Handle { HandleNone, HandleStart, HandleControl, HandleEnd, HandleDelete, HandleBody };
 
         void rebuildPath();
+        QPointF deleteBadgePos() const;   // the little x, shown while selected
+        void removeSelfWithUndo();
         qreal handleRadius() const;               // scene units, constant on screen
         Handle handleAt(const QPointF& scenePos) const;
 

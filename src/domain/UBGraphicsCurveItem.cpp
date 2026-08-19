@@ -10,6 +10,11 @@
 #include <QGraphicsView>
 #include <QStyleOptionGraphicsItem>
 #include <QtMath>
+#include <QTimer>
+
+#include "UBGraphicsScene.h"
+#include "UBGraphicsItemUndoCommand.h"
+#include "core/UBApplication.h"
 #include <QUuid>
 
 namespace
@@ -64,6 +69,29 @@ QPointF UBGraphicsCurveItem::curveMidPoint() const
 void UBGraphicsCurveItem::setCurveMidPoint(const QPointF& onCurve)
 {
     setControlPoint(2.0 * onCurve - (mStart + mEnd) / 2.0);
+}
+
+// The delete badge sits off the curve midpoint, on the far side from the bend
+// so it never ends up under the curve. For a straight line it floats above.
+QPointF UBGraphicsCurveItem::deleteBadgePos() const
+{
+    const QPointF mid = curveMidPoint();
+    QPointF away = mid - mControl;                       // zero when straight
+
+    if (QPointF::dotProduct(away, away) < 0.01)
+    {
+        const QPointF chord = mEnd - mStart;
+        away = QPointF(chord.y(), -chord.x());           // a normal to the chord
+        if (away.y() > 0)
+            away = -away;                                // prefer upward on screen
+    }
+
+    const qreal length = std::hypot(away.x(), away.y());
+
+    if (qFuzzyIsNull(length))
+        return mid + QPointF(0, -4.0 * handleRadius());  // degenerate: zero-length line
+
+    return mid + away / length * (4.0 * handleRadius());
 }
 
 bool UBGraphicsCurveItem::isStraight() const
@@ -127,7 +155,7 @@ qreal UBGraphicsCurveItem::handleRadius() const
 
 QRectF UBGraphicsCurveItem::boundingRect() const
 {
-    const qreal pad = qMax(mStrokeWidth, handleRadius() * 2.0) + 2.0;
+    const qreal pad = qMax(mStrokeWidth, handleRadius() * 5.5) + 2.0;
 
     return path().boundingRect().adjusted(-pad, -pad, pad, pad);
 }
@@ -140,7 +168,11 @@ QPainterPath UBGraphicsCurveItem::shape() const
     QPainterPath hit = stroker.createStroke(path());
 
     // The handles must be grabbable even when they sit off the stroke itself.
-    for (const QPointF& handle : {mStart, curveMidPoint(), mEnd})
+    QList<QPointF> grabPoints{mStart, curveMidPoint(), mEnd};
+    if (isSelected())
+        grabPoints << deleteBadgePos();
+
+    for (const QPointF& handle : grabPoints)
     {
         QPainterPath dot;
         dot.addEllipse(handle, handleRadius() * sGrabSlack, handleRadius() * sGrabSlack);
@@ -182,11 +214,32 @@ void UBGraphicsCurveItem::paint(QPainter* painter, const QStyleOptionGraphicsIte
 
     painter->setBrush(QColor(0, 120, 215, 90));
     painter->drawEllipse(curveMidPoint(), r * 0.85, r * 0.85);
+
+    // Delete badge: red circle, white x.
+    const QPointF badge = deleteBadgePos();
+    painter->setPen(Qt::NoPen);
+    painter->setBrush(QColor(232, 17, 35));
+    painter->drawEllipse(badge, r, r);
+
+    QPen crossPen(Qt::white);
+    crossPen.setWidthF(qMax<qreal>(1.0, r * 0.28));
+    crossPen.setCapStyle(Qt::RoundCap);
+    painter->setPen(crossPen);
+    const qreal arm = r * 0.45;
+    painter->drawLine(badge + QPointF(-arm, -arm), badge + QPointF(arm, arm));
+    painter->drawLine(badge + QPointF(-arm, arm), badge + QPointF(arm, -arm));
 }
 
 UBGraphicsCurveItem::Handle UBGraphicsCurveItem::handleAt(const QPointF& pos) const
 {
     const qreal reach = handleRadius() * sGrabSlack;
+
+    if (isSelected())
+    {
+        const QPointF deltaBadge = pos - deleteBadgePos();
+        if (QPointF::dotProduct(deltaBadge, deltaBadge) <= reach * reach)
+            return HandleDelete;
+    }
 
     struct { Handle id; QPointF at; } candidates[] = {
         { HandleStart,   mStart },
@@ -247,6 +300,9 @@ void UBGraphicsCurveItem::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
             setCurveMidPoint(pos);
             break;
 
+        case HandleDelete:
+            break;                       // wait for the release; no drag action
+
         case HandleBody:
         {
             const QPointF delta = pos - mDragOrigin;
@@ -268,8 +324,18 @@ void UBGraphicsCurveItem::mouseMoveEvent(QGraphicsSceneMouseEvent* event)
 
 void UBGraphicsCurveItem::mouseReleaseEvent(QGraphicsSceneMouseEvent* event)
 {
+    const bool releasedOnBadge = (mActiveHandle == HandleDelete)
+            && (handleAt(event->pos()) == HandleDelete);
+
     mActiveHandle = HandleNone;
     event->accept();
+
+    if (releasedOnBadge)
+    {
+        // Deferred: removing the item from inside its own mouse handler would
+        // pull the scene's mouse grabber out from under Qt.
+        QTimer::singleShot(0, [this]() { removeSelfWithUndo(); });
+    }
 }
 
 QVariant UBGraphicsCurveItem::itemChange(GraphicsItemChange change, const QVariant& value)
@@ -278,6 +344,22 @@ QVariant UBGraphicsCurveItem::itemChange(GraphicsItemChange change, const QVaria
         update();       // handles appear and disappear with selection
 
     return QGraphicsPathItem::itemChange(change, value);
+}
+
+// Mirrors UBGraphicsItemDelegate::remove(): out of the scene, one undo entry.
+// The undo command takes over the item's lifetime from here.
+void UBGraphicsCurveItem::removeSelfWithUndo()
+{
+    UBGraphicsScene* ubScene = dynamic_cast<UBGraphicsScene*>(QGraphicsPathItem::scene());
+
+    if (!ubScene)
+        return;
+
+    auto sharedScene = ubScene->shared_from_this();
+    sharedScene->removeItem(this);
+
+    UBGraphicsItemUndoCommand* uc = new UBGraphicsItemUndoCommand(sharedScene, this, nullptr);
+    UBApplication::undoStack->push(uc);
 }
 
 UBItem* UBGraphicsCurveItem::deepCopy() const

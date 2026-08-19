@@ -96,6 +96,12 @@ class UBStylusPalette : public UBActionPalette
         // almost no board, with an arrow to bring the rest back.
         void setCollapsed(bool collapsed);
 
+    protected:
+        // WistOpenboard fork: slimmer margins than the base palette, plus a wider
+        // strip at the top to drag with a finger. Overridden because the base
+        // class re-applies its own margins whenever it relayouts.
+        virtual void updateLayout() override;
+
     private:
         int mLastSelectedId;
 

@@ -259,7 +259,12 @@ void UBActionPalette::actionChanged()
 {
     for(int i = 0; i < mActions.length() && i < mButtons.length(); i++)
     {
-        mButtons.at(i)->setVisible(mActions.at(i)->isVisible());
+        // WistOpenboard fork: a button hidden by the palette itself (collapse
+        // mode) stays hidden. Without this, ANY QAction::changed signal -- even
+        // the collapse arrow updating its own icon -- re-showed every button a
+        // moment after setCollapsed() hid them, so the palette never shrank.
+        const bool paletteHidden = mButtons.at(i)->property("collapsedHidden").toBool();
+        mButtons.at(i)->setVisible(mActions.at(i)->isVisible() && !paletteHidden);
     }
 }
 
