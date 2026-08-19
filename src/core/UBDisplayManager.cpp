@@ -371,22 +371,40 @@ void UBDisplayManager::positionScreens()
             }
         }
 
-        // Sometimes moving control screen to the left won't operate...
-        // found out that resetting the geometry solves theses cases better than "showNormal() workaround"
-        // however there are cases when "showNormal()" is required to update control screen position, so doing both
-        controlWidget->showNormal();
+        // WistOpenboard fork: in window mode the teacher owns the window. Every
+        // main-mode switch (Board / Web / Document) calls adjustScreens(), and the
+        // showNormal() below un-maximises the window -- which dropped a maximised
+        // window back to its much smaller restore geometry on entering Web mode.
+        // A maximised or fullscreen window is already the size the teacher wants,
+        // so leave it strictly alone.
+        const bool keepWindowAsIs =
+                UBSettings::settings()->appRunInWindow->get().toBool()
+                && controlWidget->isVisible()
+                && (controlWidget->isMaximized() || controlWidget->isFullScreen());
 
-        // suppress resize events while resetting geometry
-        UBApplication::boardController->controlView()->installEventFilter(&resizeEventFilter);
-        controlWidget->setGeometry(QRect());
-        UBApplication::boardController->controlView()->removeEventFilter(&resizeEventFilter);
+        if (keepWindowAsIs)
+        {
+            controlWidget->setProperty("isInitialized", true);
+        }
+        else
+        {
+            // Sometimes moving control screen to the left won't operate...
+            // found out that resetting the geometry solves theses cases better than "showNormal() workaround"
+            // however there are cases when "showNormal()" is required to update control screen position, so doing both
+            controlWidget->showNormal();
 
-        qDebug() << "control geometry" << geometry;
-        controlWidget->setGeometry(geometry);
-        // with Qt6, setGeometry has not the desired effect so we additionally use move and resize
-        controlWidget->move(geometry.topLeft());
-        controlWidget->resize(geometry.size());
-        UBPlatformUtils::showFullScreen(controlWidget);
+            // suppress resize events while resetting geometry
+            UBApplication::boardController->controlView()->installEventFilter(&resizeEventFilter);
+            controlWidget->setGeometry(QRect());
+            UBApplication::boardController->controlView()->removeEventFilter(&resizeEventFilter);
+
+            qDebug() << "control geometry" << geometry;
+            controlWidget->setGeometry(geometry);
+            // with Qt6, setGeometry has not the desired effect so we additionally use move and resize
+            controlWidget->move(geometry.topLeft());
+            controlWidget->resize(geometry.size());
+            UBPlatformUtils::showFullScreen(controlWidget);
+        }
     }
 
     if (widget(ScreenRole::Display) && hasDisplay() && mUseMultiScreen)
