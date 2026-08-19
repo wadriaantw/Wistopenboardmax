@@ -36,6 +36,7 @@
 #include <QRubberBand>
 
 #include <QHash>
+#include <QSet>
 #include <QPixmap>
 #include "core/UB.h"
 #include "domain/UBGraphicsDelegateFrame.h"
@@ -243,6 +244,7 @@ private:
     // cached as pixmaps keyed by page index and blitted in drawBackground();
     // only the page nearest the viewport centre is ever a live scene.
     QHash<int, QPixmap> mStripPixmaps;
+    QSet<int> mPendingStripPixmaps;
     bool mSwappingScene = false;
 
     qreal continuousStride() const;

@@ -32,6 +32,7 @@
 #include <QPixmap>
 #include <QTransform>
 #include <QScrollBar>
+#include <QApplication>
 #include <QFontMetrics>
 #include <QGraphicsItem>
 #include <QGraphicsPixmapItem>
@@ -206,11 +207,37 @@ void UBBoardThumbnailsView::mousePressEvent(QMouseEvent *event)
         selection.first()->setSelected(true);
     }
 
+    mDragScrolling = false;
+    mLastDragPos = event->pos();
     mLongPressTimer.start();
 }
 
 void UBBoardThumbnailsView::mouseMoveEvent(QMouseEvent *event)
 {
+    // WistOpenboard fork: drag anywhere in the strip to scroll it. Touch on this
+    // view arrives as synthesised mouse events (unlike the board view, which
+    // handles QTouchEvent directly), so handling it here covers finger, pen and
+    // mouse alike.
+    if (event->buttons() != Qt::NoButton)
+    {
+        const int dy = event->pos().y() - (mDragScrolling ? mLastDragPos : mLastPressedMousePos).y();
+
+        if (!mDragScrolling && qAbs(event->pos().y() - mLastPressedMousePos.y()) >= QApplication::startDragDistance())
+        {
+            // Past the slop threshold: this is a scroll, not a page drag.
+            mDragScrolling = true;
+            mLongPressTimer.stop();
+        }
+
+        if (mDragScrolling)
+        {
+            verticalScrollBar()->setValue(verticalScrollBar()->value() - dy);
+            mLastDragPos = event->pos();
+            event->accept();
+            return;
+        }
+    }
+
     QGraphicsView::mouseMoveEvent(event);
 }
 
@@ -273,6 +300,7 @@ bool UBBoardThumbnailsView::event(QEvent* event)
 void UBBoardThumbnailsView::mouseReleaseEvent(QMouseEvent *event)
 {
     mLongPressTimer.stop();
+    mDragScrolling = false;
 
     // do not forward event to QGraphicsView to avoid change of selection
 }

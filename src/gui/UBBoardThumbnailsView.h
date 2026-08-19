@@ -98,6 +98,12 @@ private:
     QTimer mLongPressTimer;
     QPoint mLastPressedMousePos;
 
+    // WistOpenboard fork: finger/mouse drag scrolls the strip. Once a drag is
+    // recognised the long-press timer is cancelled, so a swipe never turns into
+    // a page reorder -- reordering still works via press-and-hold, then drag.
+    QPoint mLastDragPos;
+    bool mDragScrolling = false;
+
     int mCurrentIndex{-1};
     bool mScrollbarVisible{false};
 

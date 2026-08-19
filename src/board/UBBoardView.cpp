@@ -1682,7 +1682,15 @@ void UBBoardView::drawContinuousNeighbours(QPainter* painter, const QRectF& rect
         {
             // Not rendered yet: show the blank page and fetch it out-of-band.
             painter->fillRect(pageRect, s->isDarkBackground() ? Qt::black : Qt::white);
-            QTimer::singleShot(0, this, [this, j]() { ensureStripPixmap(j); });
+
+            // Arm the render once per page, not on every repaint: while the pen is
+            // down the viewport repaints constantly and this would otherwise queue
+            // a fresh timer per frame.
+            if (!mPendingStripPixmaps.contains(j))
+            {
+                mPendingStripPixmaps.insert(j);
+                QTimer::singleShot(0, this, [this, j]() { mPendingStripPixmaps.remove(j); ensureStripPixmap(j); });
+            }
         }
         else
         {
