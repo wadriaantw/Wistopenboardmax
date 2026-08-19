@@ -159,6 +159,7 @@ class UBSvgSubsetAdaptor
                 UBGraphicsW3CWidgetItem* graphicsW3CWidgetFromSvg();
 
                 UBGraphicsTextItem* textItemFromSvg();
+                class UBGraphicsCurveItem* curveItemFromSvg();   // WistOpenboard fork
 
                 UBGraphicsCurtainItem* curtainItemFromSvg();
 
@@ -274,6 +275,7 @@ class UBSvgSubsetAdaptor
                 void graphicsW3CWidgetToSvg(UBGraphicsW3CWidgetItem *item);
                 void graphicsWidgetToSvg(UBGraphicsWidgetItem *item);
                 void textItemToSvg(UBGraphicsTextItem *item);
+                void curveToSvg(class UBGraphicsCurveItem *item);   // WistOpenboard fork
                 void curtainItemToSvg(UBGraphicsCurtainItem *item);
                 void rulerToSvg(UBGraphicsRuler *item);
                 void axesToSvg(UBGraphicsAxes *item);

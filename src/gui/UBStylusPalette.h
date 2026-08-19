@@ -92,10 +92,15 @@ class UBStylusPalette : public UBActionPalette
         // without going up to the top toolbar -- which in full screen is hidden.
         void showPenProperties();
 
+        // WistOpenboard fork: shrink the palette to pen + eraser so it takes up
+        // almost no board, with an arrow to bring the rest back.
+        void setCollapsed(bool collapsed);
+
     private:
         int mLastSelectedId;
 
         QAction* mFullScreenAction = nullptr;
+        QAction* mCollapseAction = nullptr;
         UBPenPropertiesPopup* mPenPropertiesPopup = nullptr;
         QList<QPointer<QToolBar> > mHiddenToolBars;   // restored on leaving full screen
         bool mWasMaximized = false;

@@ -44,6 +44,7 @@
 #include "domain/UBGraphicsWidgetItem.h"
 #include "domain/UBGraphicsPDFItem.h"
 #include "domain/UBGraphicsTextItem.h"
+#include "domain/UBGraphicsCurveItem.h"
 #include "domain/UBGraphicsTextItemDelegate.h"
 #include "domain/UBGraphicsStroke.h"
 #include "domain/UBGraphicsStrokesGroup.h"
@@ -783,6 +784,15 @@ void UBSvgSubsetAdaptor::UBSvgSubsetReader::processElement()
                 textItem->show();
             }
         }
+        else if (name == "curve")   // WistOpenboard fork
+        {
+            UBGraphicsCurveItem* curveItem = curveItemFromSvg();
+            if (curveItem)
+            {
+                mScene->addItem(curveItem);
+                curveItem->show();
+            }
+        }
         else if (name == "curtain")
         {
             UBGraphicsCurtainItem* mask = curtainItemFromSvg();
@@ -1432,6 +1442,14 @@ bool UBSvgSubsetAdaptor::UBSvgSubsetWriter::persistScene(std::shared_ptr<UBDocum
         if (pdfItem && pdfItem->isVisible())
         {
             pdfItemToLinkedPDF(pdfItem);
+            continue;
+        }
+
+        // Is the item an editable line/curve? (WistOpenboard fork)
+        UBGraphicsCurveItem *curveItem = qgraphicsitem_cast<UBGraphicsCurveItem*> (item);
+        if (curveItem && curveItem->isVisible())
+        {
+            curveToSvg(curveItem);
             continue;
         }
 
@@ -2825,6 +2843,77 @@ void UBSvgSubsetAdaptor::UBSvgSubsetWriter::textItemToSvg(UBGraphicsTextItem* it
     mXmlWriter.writeEndElement(); //itemTextContent
 
     mXmlWriter.writeEndElement(); //foreignObject
+}
+
+// WistOpenboard fork: the Line tool's editable line/curve. Three points plus a
+// pen; everything else (transform, z-order, uuid) goes through the shared
+// graphicsItem helpers so it behaves like any other item.
+void UBSvgSubsetAdaptor::UBSvgSubsetWriter::curveToSvg(UBGraphicsCurveItem* item)
+{
+    auto pointToString = [](const QPointF& p) {
+        return QString("%1 %2").arg(p.x()).arg(p.y());
+    };
+
+    mXmlWriter.writeStartElement("curve");
+
+    graphicsItemToSvg(item);
+
+    mXmlWriter.writeAttribute(UBSettings::uniboardDocumentNamespaceUri, "start", pointToString(item->startPoint()));
+    mXmlWriter.writeAttribute(UBSettings::uniboardDocumentNamespaceUri, "control", pointToString(item->controlPoint()));
+    mXmlWriter.writeAttribute(UBSettings::uniboardDocumentNamespaceUri, "end", pointToString(item->endPoint()));
+    mXmlWriter.writeAttribute(UBSettings::uniboardDocumentNamespaceUri, "stroke-color", item->color().name());
+    mXmlWriter.writeAttribute(UBSettings::uniboardDocumentNamespaceUri, "stroke-width", QString::number(item->strokeWidth()));
+
+    mXmlWriter.writeEndElement();
+}
+
+UBGraphicsCurveItem* UBSvgSubsetAdaptor::UBSvgSubsetReader::curveItemFromSvg()
+{
+    auto pointFromString = [](const QString& text, bool* ok) {
+        const QStringList parts = text.split(' ', Qt::SkipEmptyParts);
+        if (parts.count() != 2) { if (ok) *ok = false; return QPointF(); }
+        bool okX = false, okY = false;
+        const QPointF p(parts.at(0).toDouble(&okX), parts.at(1).toDouble(&okY));
+        if (ok) *ok = okX && okY;
+        return p;
+    };
+
+    bool okStart = false, okControl = false, okEnd = false;
+
+    const QPointF start = pointFromString(mXmlReader.attributes().value(mNamespaceUri, "start").toString(), &okStart);
+    const QPointF control = pointFromString(mXmlReader.attributes().value(mNamespaceUri, "control").toString(), &okControl);
+    const QPointF end = pointFromString(mXmlReader.attributes().value(mNamespaceUri, "end").toString(), &okEnd);
+
+    if (!okStart || !okEnd)
+        return nullptr;                 // nothing sensible to draw
+
+    UBGraphicsCurveItem* curveItem = new UBGraphicsCurveItem();
+
+    graphicsItemFromSvg(curveItem);
+
+    curveItem->setLine(start, end);
+
+    if (okControl)
+        curveItem->setControlPoint(control);
+
+    const auto colorAttribute = mXmlReader.attributes().value(mNamespaceUri, "stroke-color");
+    if (!colorAttribute.isNull())
+    {
+        QColor color(colorAttribute.toString());
+        if (color.isValid())
+            curveItem->setColor(color);
+    }
+
+    const auto widthAttribute = mXmlReader.attributes().value(mNamespaceUri, "stroke-width");
+    if (!widthAttribute.isNull())
+    {
+        bool okWidth = false;
+        const qreal width = widthAttribute.toDouble(&okWidth);
+        if (okWidth)
+            curveItem->setStrokeWidth(width);
+    }
+
+    return curveItem;
 }
 
 UBGraphicsTextItem* UBSvgSubsetAdaptor::UBSvgSubsetReader::textItemFromSvg()

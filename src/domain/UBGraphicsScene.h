@@ -490,6 +490,10 @@ signals:
 
         UBGraphicsStroke* mCurrentStroke;
 
+        // WistOpenboard fork: the line being dragged out, while the Line tool is
+        // in use. Null at all other times; the item itself stays in the scene.
+        class UBGraphicsCurveItem* mCurrentCurve = nullptr;
+
         int mItemCount;
 
         bool mHasCache;

@@ -61,6 +61,7 @@
 #include "board/UBBoardView.h"
 
 #include "UBGraphicsItemUndoCommand.h"
+#include "UBGraphicsCurveItem.h"
 #include "UBGraphicsItemGroupUndoCommand.h"
 #include "UBGraphicsTextItemUndoCommand.h"
 #include "UBGraphicsPixmapItem.h"
@@ -461,7 +462,10 @@ bool UBGraphicsScene::inputDevicePress(const QPointF& scenePos, const qreal& pre
             }
 
             width /= UBApplication::boardController->systemScaleFactor();
-            width /= UBApplication::boardController->currentZoom();
+            // WistOpenboard fork: deliberately NOT divided by currentZoom(). Dividing
+            // made a stroke constant on screen, which meant writing while zoomed in
+            // landed thinner on the page than writing while zoomed out. Width is a
+            // property of the ink on the page, so it stays in page units.
 
             mAddedItems.clear();
             mRemovedItems.clear();
@@ -477,10 +481,26 @@ bool UBGraphicsScene::inputDevicePress(const QPointF& scenePos, const qreal& pre
                     pos += snap(scenePos);
                 }
 
-                moveTo(pos);
-                drawLineTo(pos, width, isLine);
+                if (isLine)
+                {
+                    // WistOpenboard fork: the Line tool now produces a real geometric
+                    // item with movable end points, instead of baking the line into
+                    // polygons the way drawLineTo() does.
+                    mCurrentCurve = new UBGraphicsCurveItem();
+                    mCurrentCurve->setColor(UBSettings::settings()->penColor(isDarkBackground()));
+                    mCurrentCurve->setStrokeWidth(width);
+                    mCurrentCurve->setLine(pos, pos);
+                    addItem(mCurrentCurve);
+                    mAddedItems.insert(mCurrentCurve);
+                    mPreviousPoint = pos;
+                }
+                else
+                {
+                    moveTo(pos);
+                    drawLineTo(pos, width, isLine);
 
-                mCurrentStroke->addPoint(pos, width);
+                    mCurrentStroke->addPoint(pos, width);
+                }
             }
             accepted = true;
         }
@@ -567,7 +587,7 @@ bool UBGraphicsScene::inputDeviceMove(const QPointF& scenePos, const qreal& pres
             }
 
             width /= UBApplication::boardController->systemScaleFactor();
-            width /= UBApplication::boardController->currentZoom();
+            // (zoom deliberately not applied here -- see note above)
 
             std::optional<QPointF> altPosition;
 
@@ -637,7 +657,10 @@ bool UBGraphicsScene::inputDeviceMove(const QPointF& scenePos, const qreal& pres
                 offset += viewRadius.p2().toPoint();
                 UBApplication::boardController->setCursorFromAngle(angle, offset);
 
-                drawLineTo(position, width, true);
+                if (mCurrentCurve)
+                    mCurrentCurve->setLine(mPreviousPoint, position);
+                else
+                    drawLineTo(position, width, true);
             }
 
             else {
@@ -755,6 +778,15 @@ bool UBGraphicsScene::inputDeviceRelease(int tool, Qt::KeyboardModifiers modifie
 
     UBStylusTool::Enum currentTool = (UBStylusTool::Enum)tool;
     UBDrawingController *dc = UBDrawingController::drawingController();
+
+    // WistOpenboard fork: finish the line. The item stays in the scene and is
+    // already in mAddedItems, so the undo command at the end of this function
+    // covers it like any other added item.
+    if (mCurrentCurve)
+    {
+        mCurrentCurve = nullptr;
+        accepted = true;
+    }
 
     if (dc->isDrawingTool(tool) || mDrawWithCompass)
     {
@@ -993,7 +1025,7 @@ void UBGraphicsScene::drawMarkerCircle(const QPointF &pPoint)
     if (mMarkerCircle) {
         qreal markerDiameter = UBSettings::settings()->currentMarkerWidth();
         markerDiameter /= UBApplication::boardController->systemScaleFactor();
-        markerDiameter /= UBApplication::boardController->currentZoom();
+        // (zoom deliberately not applied here -- see note above)
         qreal markerRadius = markerDiameter/2;
 
         mMarkerCircle->setRect(QRectF(pPoint.x() - markerRadius, pPoint.y() - markerRadius,
@@ -1011,7 +1043,7 @@ void UBGraphicsScene::drawPenCircle(const QPointF &pPoint)
         UBSettings::settings()->currentPenWidth() >= UBSettings::settings()->penPreviewFromSize->get().toInt()) {
         qreal penDiameter = UBSettings::settings()->currentPenWidth();
         penDiameter /= UBApplication::boardController->systemScaleFactor();
-        penDiameter /= UBApplication::boardController->currentZoom();
+        // (zoom deliberately not applied here -- see note above)
         qreal penRadius = penDiameter/2;
 
         mPenCircle->setRect(QRectF(pPoint.x() - penRadius, pPoint.y() - penRadius,
@@ -1207,7 +1239,7 @@ bool UBGraphicsScene::trySnapStrokeToShape()
     // Compute width matching the press-time formula (see inputDevicePress)
     qreal width = UBDrawingController::drawingController()->currentToolWidth();
     width /= UBApplication::boardController->systemScaleFactor();
-    width /= UBApplication::boardController->currentZoom();
+    // (zoom deliberately not applied here -- see note above)
     if (width < 0.5) width = 0.5;
 
     // Detach the old freehand polygons from mCurrentStroke and delete them.
@@ -1410,7 +1442,7 @@ void UBGraphicsScene::drawArcTo(const QPointF& pCenterPoint, qreal pSpanAngle)
     }
     qreal penWidth = UBSettings::settings()->currentPenWidth();
     penWidth /= UBApplication::boardController->systemScaleFactor();
-    penWidth /= UBApplication::boardController->currentZoom();
+    // (zoom deliberately not applied here -- see note above)
 
     mArcPolygonItem = arcToPolygonItem(QLineF(pCenterPoint, mPreviousPoint), pSpanAngle, penWidth);
     mArcPolygonItem->setFillRule(Qt::WindingFill);

@@ -292,6 +292,11 @@ UBStylusPalette::UBStylusPalette(QWidget *parent, Qt::Orientation orient)
     actions << UBApplication::mainWindow->actionText;
     actions << UBApplication::mainWindow->actionCapture;
 
+    // WistOpenboard fork: desktop mode, so annotating over other apps does not
+    // mean going back up to the top toolbar (hidden in full screen).
+    actions << UBApplication::mainWindow->actionDesktop;
+    UBApplication::mainWindow->actionDesktop->setProperty("ungrouped", true);
+
     if(UBPlatformUtils::hasVirtualKeyboard())
     {
         actions << UBApplication::mainWindow->actionVirtualKeyboard;
@@ -309,9 +314,24 @@ UBStylusPalette::UBStylusPalette(QWidget *parent, Qt::Orientation orient)
     connect(mFullScreenAction, &QAction::toggled, this, &UBStylusPalette::toggleFullScreen);
     actions << mFullScreenAction;
 
+    mCollapseAction = new QAction(QIcon(":/images/toolbar/previous.png"), tr("Show fewer tools"), this);
+    mCollapseAction->setCheckable(true);
+    mCollapseAction->setToolTip(tr("Collapse to pen and eraser"));
+    mCollapseAction->setProperty("ungrouped", true);
+    connect(mCollapseAction, &QAction::toggled, this, &UBStylusPalette::setCollapsed);
+    actions << mCollapseAction;
+
     setActions(actions);
     setButtonIconSize(QSize(42, 42));
     groupActions();
+
+    // Keep the collapse arrow visually small -- the whole point is a palette
+    // that stays out of the way.
+    if (UBActionPaletteButton* collapseButton = getButtonFromAction(mCollapseAction))
+    {
+        collapseButton->setIconSize(QSize(14, 14));
+        collapseButton->setFixedSize(22, 22);
+    }
 
     UBShortcutManager::shortcutManager()->addActionGroup(mActionGroup);
 
@@ -362,6 +382,45 @@ UBStylusPalette::~UBStylusPalette()
     {
         UBShortcutManager::shortcutManager()->removeActionGroup(mActionGroup);
     }
+}
+
+void UBStylusPalette::setCollapsed(bool collapsed)
+{
+    UBMainWindow* mainWindow = UBApplication::mainWindow;
+
+    if (!mainWindow)
+        return;
+
+    // Everything else folds away; these stay so the palette is still usable, and
+    // the arrow stays so there is a way back.
+    const QList<QAction*> alwaysShown{mainWindow->actionPen,
+                                      mainWindow->actionEraser,
+                                      mCollapseAction};
+
+    for (auto it = mMapActionToButton.constBegin(); it != mMapActionToButton.constEnd(); ++it)
+    {
+        if (it.value())
+            it.value()->setVisible(!collapsed || alwaysShown.contains(it.key()));
+    }
+
+    mCollapseAction->setIcon(QIcon(collapsed ? ":/images/toolbar/next.png"
+                                             : ":/images/toolbar/previous.png"));
+    mCollapseAction->setToolTip(collapsed ? tr("Show all tools")
+                                          : tr("Collapse to pen and eraser"));
+
+    // Hiding the buttons is not enough on its own: preferredSize() reads
+    // sizeHint(), and without invalidating the layout first that hint is still
+    // the old full-width one -- the buttons vanished but the palette stayed the
+    // same size, which just looks broken.
+    if (layout())
+    {
+        layout()->invalidate();
+        layout()->activate();
+    }
+
+    updateGeometry();
+    resize(preferredSize());
+    adjustSizeAndPosition();
 }
 
 void UBStylusPalette::showPenProperties()
