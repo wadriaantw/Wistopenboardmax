@@ -210,6 +210,7 @@ private slots:
 private:
     void tabClicked(int tabIndex);
     int tabSpacing();
+    int tabWidth(); // WistOpenboard fork: slimmer than the legacy 2*border()
     void toggleCollapseExpand();
     void moveTabs();
     void resizeTabs();

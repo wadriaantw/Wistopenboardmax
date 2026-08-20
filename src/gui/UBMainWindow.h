@@ -103,6 +103,12 @@ private:
         UBDownloadWidget* mpDownloadWidget;
 
         QToolBar* mDocumentTabsToolBar = nullptr;
+
+    public:
+        // WistOpenboard fork: zen mode needs to hide/show the tabs strip.
+        QToolBar* documentTabsToolBar() { return mDocumentTabsToolBar; }
+
+    private:
         QTabBar* mDocumentTabBar = nullptr;
 };
 

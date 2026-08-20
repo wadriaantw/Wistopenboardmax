@@ -144,6 +144,7 @@ class UBActionPaletteButton : public QToolButton
         QTimer mLongPressTimer;
         QPoint mPressPos;
         bool mLongPressFired = false;
+        bool mEmitOnRelease = false;
 };
 
 #endif /* UBACTIONPALETTE_H_ */

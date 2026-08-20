@@ -58,6 +58,9 @@ UBPageNavigationWidget::UBPageNavigationWidget(QWidget *parent, const char *name
 
     // Build the gui
     mLayout = new QVBoxLayout(this);
+    // WistOpenboard fork: default layout margins wasted ~11px per side of a
+    // drawer that is only ~170px wide -- every pixel goes to the previews.
+    mLayout->setContentsMargins(2, 2, 2, 2);
     setLayout(mLayout);
 
     mNavigator = new UBBoardThumbnailsView(this);

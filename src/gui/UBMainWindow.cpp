@@ -83,7 +83,7 @@ UBMainWindow::UBMainWindow(QWidget *parent, Qt::WindowFlags flags)
         QWidget* notchSpacer = new QWidget(this);
         notchSpacer->setFixedHeight(38);
         notchSpacer->setAttribute(Qt::WA_StyledBackground, true);
-        notchSpacer->setStyleSheet("background-color: #1d1d1f;");
+        notchSpacer->setStyleSheet("background-color: #FFFFFF;"); // WistOpenboard fork: Fluent-light
         notchSpacer->setObjectName("macNotchSpacer");
         setMenuWidget(notchSpacer);
     }
@@ -130,13 +130,14 @@ UBMainWindow::UBMainWindow(QWidget *parent, Qt::WindowFlags flags)
     // height) toolbar vertically center it. The styles below also override the
     // global OpenBoard.css QTabBar rules (height:14px, margin-top:6px, border)
     // that were skewing the vertical alignment.
+    // WistOpenboard fork: Fluent-light tab strip (was the #1d1d1f dark band).
     mDocumentTabBar->setStyleSheet(
-        "QTabBar { background:#1d1d1f; }"
-        "QTabBar::tab { background:#2b2b2e; color:#dddddd; border:none; height:22px;"
+        "QTabBar { background:#FFFFFF; }"
+        "QTabBar::tab { background:#F2F2F0; color:#6A6A66; border:none; height:22px;"
         " padding:3px 6px 3px 12px; margin:0 2px 0 0; min-width:90px; max-width:240px;"
-        " border-top-left-radius:5px; border-top-right-radius:5px; }"
-        "QTabBar::tab:selected { background:#4a4a4f; color:#ffffff; }"
-        "QTabBar::tab:hover { background:#3a3a3e; }");
+        " border-top-left-radius:6px; border-top-right-radius:6px; }"
+        "QTabBar::tab:selected { background:#EAEAE8; color:#1A1A1A; }"
+        "QTabBar::tab:hover { background:#EDEDEB; }");
 
     // "+" button: opens the Documents library so the user picks another doc.
     QToolButton* addTabButton = new QToolButton(this);
@@ -146,8 +147,8 @@ UBMainWindow::UBMainWindow(QWidget *parent, Qt::WindowFlags flags)
     addTabButton->setFocusPolicy(Qt::NoFocus);
     addTabButton->setFixedHeight(kTabBarHeight);
     addTabButton->setStyleSheet(
-        "QToolButton { color:#dddddd; font-size:16px; font-weight:bold; padding:0 10px; border:0; }"
-        "QToolButton:hover { color:#ffffff; }");
+        "QToolButton { color:#6A6A66; font-size:16px; font-weight:bold; padding:0 10px; border:0; }"
+        "QToolButton:hover { color:#1A1A1A; }");
     connect(addTabButton, &QToolButton::clicked, this, [this]() {
         // "+" means: the next document I open should go into a NEW tab.
         if (UBApplication::boardController)
@@ -162,7 +163,7 @@ UBMainWindow::UBMainWindow(QWidget *parent, Qt::WindowFlags flags)
     mDocumentTabsToolBar->setFloatable(false);
     mDocumentTabsToolBar->setContextMenuPolicy(Qt::PreventContextMenu);
     mDocumentTabsToolBar->setIconSize(QSize(16, 16));   // keep the toolbar row short
-    mDocumentTabsToolBar->setStyleSheet("QToolBar { background:#1d1d1f; border:0; padding:0; margin:0; spacing:0; }");
+    mDocumentTabsToolBar->setStyleSheet("QToolBar { background:#FFFFFF; border:0; border-bottom:1px solid #E5E5E3; padding:0; margin:0; spacing:0; }");
     // Tab bar and "+" go directly into the toolbar as separate items. With
     // scroll buttons disabled the bar's size hint equals the full width of all
     // its tabs, so the toolbar gives it that width (every tab shows, left-

@@ -98,7 +98,7 @@ QColor UBSettings::penCirclePenColorLightBackground = QColor(0, 0, 0, 127);
 QColor UBSettings::documentSizeMarkColorDarkBackground = QColor(44, 44, 44, 200);
 QColor UBSettings::documentSizeMarkColorLightBackground = QColor(241, 241, 241);
 
-QColor UBSettings::paletteColor = QColor(127, 127, 127, 127);
+QColor UBSettings::paletteColor = QColor(255, 255, 255, 246); // WistOpenboard fork: minimalist chrome (was 127,127,127,127)
 QColor UBSettings::opaquePaletteColor = QColor(66, 66, 66, 200);
 
 QColor UBSettings::documentViewLightColor = QColor(241, 241, 241);
@@ -293,6 +293,7 @@ void UBSettings::init()
     boardSimplifyPenStrokes = new UBSetting(this, "Board", "SimplifyPenStrokes", true);
     boardSnapToShape = new UBSetting(this, "Board", "SnapToShape", false); // WistOpenboard fork
     boardContinuousScroll = new UBSetting(this, "Board", "ContinuousScroll", false); // WistOpenboard fork
+    appZenMode = new UBSetting(this, "App", "ZenMode", true); // WistOpenboard fork: start with all chrome hidden, board fills the screen
     boardSimplifyPenStrokesThresholdAngle = new UBSetting(this, "Board", "SimplifyPenStrokesThresholdAngle", 2);
     boardSimplifyPenStrokesThresholdWidthDifference = new UBSetting(this, "Board", "SimplifyPenStrokesThresholdWidthDifference", 2.0);
 

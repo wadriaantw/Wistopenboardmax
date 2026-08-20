@@ -495,7 +495,10 @@ void UBApplication::toolBarPositionChanged(QVariant topOrBottom)
 
     // Place the document-tabs bar AFTER the mode toolbars so it isn't scrambled
     // by the re-adds above.
-    mainWindow->placeDocumentTabsToolBar(area);
+    // WistOpenboard fork: the tabs strip always stays at the top -- in the
+    // bottom-dock layout the tools live at the bottom and the thin document
+    // strip is the only chrome up top.
+    mainWindow->placeDocumentTabsToolBar(Qt::TopToolBarArea);
 
     webController->showTabAtTop(topOrBottom.toBool());
 

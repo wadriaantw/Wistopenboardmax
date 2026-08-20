@@ -69,6 +69,9 @@ UBDockPalette::UBDockPalette(eUBDockPaletteType paletteType, QWidget *parent, co
     setObjectName(name);
 
     mpLayout = new QVBoxLayout();
+    // WistOpenboard fork: default margins stacked with every other inset between
+    // drawer edge and content; slim them so the content gets the width.
+    mpLayout->setContentsMargins(4, 4, 4, 4);
     setLayout(mpLayout);
 
     mpStackWidget = new QStackedWidget(this);
@@ -268,6 +271,14 @@ void UBDockPalette::setBackgroundBrush(const QBrush &brush)
 int UBDockPalette::border()
 {
     return 15;
+}
+
+// WistOpenboard fork: the drawer tab used to be 2*border() = 30px wide, which
+// read as a fat blank slab. 20px still takes a fingertip; the chevron is drawn
+// centred so its size is unchanged.
+int UBDockPalette::tabWidth()
+{
+    return 20;
 }
 
 /**
@@ -512,17 +523,13 @@ void UBDockPalette::moveTabs()
             x = parentWidget()->width() - width() - border() * 2;
     }
 
+    // WistOpenboard fork: centre the tab on the screen edge -- reachable at any
+    // height on a wall-mounted board, and it reads as a handle for the whole
+    // edge rather than a control tucked in a corner.
+    const int tabsHeight = mTabWidgets.size() * TABSIZE + qMax(int(mTabWidgets.size()) - 1, 0) * tabSpacing();
     int y = border();
-    if(eUBDockTabOrientation_Down == mTabsOrientation)
-    {
-        if (mOrientation == eUBDockOrientation_Right)
-        {
-            if (parentWidget())
-                y = parentWidget()->height() - border()- mTabWidgets.size() * TABSIZE;
-        }
-        else
-            y = height() - border()- mTabWidgets.size() * TABSIZE;
-    }
+    const int referenceHeight = parentWidget() ? parentWidget()->height() : height();
+    y = qMax(border(), (referenceHeight - tabsHeight) / 2);
 
     mHTab = y;
 
@@ -531,7 +538,7 @@ void UBDockPalette::moveTabs()
 void UBDockPalette::resizeTabs()
 {
     int numTabs = mTabWidgets.size();
-    mTabPalette->setFixedSize(2 * border(), (numTabs * TABSIZE) + qMax(numTabs - 1, 0) * tabSpacing());
+    mTabPalette->setFixedSize(tabWidth(), (numTabs * TABSIZE) + qMax(numTabs - 1, 0) * tabSpacing());
 }
 QRect UBDockPalette::getTabPaletteRect()
 {
@@ -593,7 +600,7 @@ UBTabDockPalette::UBTabDockPalette(UBDockPalette *dockPalette, QWidget *parent) 
 , mFlotable(false)
 {
     int numTabs = dock->mTabWidgets.size();
-    resize(2 * dock->border(), (numTabs * TABSIZE) + qMax(numTabs - 1, 0) * dock->tabSpacing());
+    resize(dock->tabWidth(), (numTabs * TABSIZE) + qMax(numTabs - 1, 0) * dock->tabSpacing());
 
     setAttribute(Qt::WA_TranslucentBackground);
 }
@@ -655,15 +662,41 @@ void UBTabDockPalette::paintEvent(QPaintEvent *)
         }
 
         painter.save();
-        //QPixmap transparencyPix(":/images/tab_mask.png");
         if (dock->mCurrentTab != i) {
-            //iconPixmap.setAlphaChannel(transparencyPix); // deprecated; removed for now, to be re-implemented
-            QColor color(0x7F, 0x7F, 0x7F, 0x3F);
+            QColor color(0xF2, 0xF2, 0xF0, 0xE0);
             painter.setBrush(QBrush(color));
         }
 
+        // WistOpenboard fork: minimalist tab -- hairline outline and a painted
+        // chevron pointing the way the drawer will move, instead of the legacy
+        // arrow + icon pixmaps (iconPixmap is left untouched for other themes).
+        Q_UNUSED(iconPixmap);
+        painter.setPen(QPen(QColor(0xE0, 0xE0, 0xDD), 1));
         painter.drawPath(path);
-        painter.drawPixmap(2, yFrom + 2, width() - 4, TABSIZE - 4, iconPixmap);
+
+        {
+            const bool collapsed = dock->mCollapseWidth >= dock->width();
+            // Chevron points outward when expandable, inward when collapsible.
+            bool pointsRight = (dock->mOrientation == eUBDockOrientation_Left) ? collapsed : !collapsed;
+
+            QPen chevronPen(QColor(0x5A, 0x5A, 0x56));
+            chevronPen.setWidthF(2.0);
+            chevronPen.setCapStyle(Qt::RoundCap);
+            chevronPen.setJoinStyle(Qt::RoundJoin);
+            painter.setPen(chevronPen);
+            painter.setBrush(Qt::NoBrush);
+
+            const qreal cx = width() / 2.0;
+            const qreal cy = yFrom + TABSIZE / 2.0;
+            const qreal a = 4.5;
+            const qreal dir = pointsRight ? 1.0 : -1.0;
+            QPainterPath chevron;
+            chevron.moveTo(cx - dir * a / 2.0, cy - a);
+            chevron.lineTo(cx + dir * a / 2.0, cy);
+            chevron.lineTo(cx - dir * a / 2.0, cy + a);
+            painter.drawPath(chevron);
+        }
+
         yFrom += (TABSIZE + dock->tabSpacing());
         painter.restore();
     }
@@ -726,7 +759,7 @@ void UBTabDockPalette::mouseMoveEvent(QMouseEvent *event)
             break;
 
         case eUBDockOrientation_Right:
-            p.setX(p.x() - 2 * dock->border());
+            p.setX(p.x() - dock->tabWidth());
             if((dock->x() + p.x() > dock->parentWidget()->width() - dock->collapseWidth()) && (dock->x() + p.x() < dock->parentWidget()->width())) {
                 dock->update();
                 dock->resize(0, dock->height());

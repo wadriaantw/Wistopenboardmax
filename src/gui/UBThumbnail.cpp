@@ -97,8 +97,11 @@ void UBThumbnail::setThumbnailSize(QSizeF size)
     const auto scaleWidth = double(size.width()) / pixmapSize.width();
     const auto scaleHeight = double(heightForPixmap) / pixmapSize.height();
 
-    // bitmap should not be stretched
-    const auto scaleFactor = std::min({scaleWidth, scaleHeight, 1.});
+    // WistOpenboard fork: allow upscaling. The cached page previews are only
+    // ~150px wide, and the old 1.0 cap meant they could never grow to fill the
+    // sidebar -- a wide drawer just showed a small preview lost in empty space.
+    // Slight softness beats wasted space on a classroom screen; 3x bounds it.
+    const auto scaleFactor = std::min({scaleWidth, scaleHeight, 3.});
 
     QTransform transform;
     transform.scale(scaleFactor, scaleFactor);
@@ -316,7 +319,9 @@ void UBThumbnail::paint(QPainter* painter, const QStyleOptionGraphicsItem* optio
 int UBThumbnail::labelSpacing()
 {
     // identical and static all over the application
-    static int labelSpacing{UBSettings::thumbnailSpacing + QFontMetrics{QFont{}}.height()};
+    // WistOpenboard fork: was thumbnailSpacing (20) + font height -- a 36px band
+    // under every preview. 6px of air plus the text is plenty.
+    static int labelSpacing{6 + QFontMetrics{QFont{}}.height()};
 
     return labelSpacing;
 }

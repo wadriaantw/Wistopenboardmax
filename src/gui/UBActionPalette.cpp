@@ -329,7 +329,15 @@ void UBActionPaletteButton::fireLongPress()
 
     mLongPressFired = true;
     mLongPressTimer.stop();
-    emit longPressed();
+
+    // Never open the popup while the press is still active: a Qt::Popup closes
+    // on any press outside itself, so a popup opened mid-hold was immediately
+    // dismissed by the release / Windows press-and-hold synthesis and then
+    // re-opened by the second detection path -- the flicker. Defer to release.
+    if (isDown())
+        mEmitOnRelease = true;
+    else
+        emit longPressed();
 }
 
 bool UBActionPaletteButton::event(QEvent* event)
@@ -356,6 +364,7 @@ void UBActionPaletteButton::mousePressEvent(QMouseEvent *event)
 {
     mPressPos = event->pos();
     mLongPressFired = false;
+    mEmitOnRelease = false;
     mLongPressTimer.start();
     QToolButton::mousePressEvent(event);
 }
@@ -363,6 +372,18 @@ void UBActionPaletteButton::mousePressEvent(QMouseEvent *event)
 void UBActionPaletteButton::mouseReleaseEvent(QMouseEvent *event)
 {
     mLongPressTimer.stop();
+
+    if (mEmitOnRelease)
+    {
+        // The hold already happened: open the popup now that no press is
+        // active, and swallow the release so it does not ALSO act as a click.
+        mEmitOnRelease = false;
+        setDown(false);
+        event->accept();
+        emit longPressed();
+        return;
+    }
+
     QToolButton::mouseReleaseEvent(event);
 }
 

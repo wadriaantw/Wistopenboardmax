@@ -41,6 +41,9 @@
 #include <QVBoxLayout>
 #include <QHBoxLayout>
 #include <QColorDialog>
+#include <QShowEvent>
+#include <QHideEvent>
+#include <QCursor>
 #include <QToolButton>
 #include <QPainter>
 #include <QPixmap>
@@ -72,20 +75,29 @@ static bool ubOnDarkBackground()
     return false;
 }
 
+// NOT a Qt::Popup. A popup auto-closes on any press outside itself, and on a
+// touchscreen the synthesised mouse events around a long-press arrive in an
+// order that dismissed and re-triggered it -- visible as flicker. As a plain
+// frameless tool window WE own the close logic: an app-wide event filter
+// closes it on a press outside, but only after a grace period, so stray
+// synthesised events from the opening gesture cannot touch it.
 UBPenPropertiesPopup::UBPenPropertiesPopup(QWidget* parent)
-    : QWidget(parent, Qt::Popup)      // Popup closes itself when tapped away from
+    : QWidget(parent, Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint)
 {
+    setAttribute(Qt::WA_ShowWithoutActivating);
+    setAttribute(Qt::WA_TranslucentBackground);   // lets the rounded corners clip
+    setAttribute(Qt::WA_StyledBackground);        // custom QWidget subclasses skip stylesheet backgrounds without this
     setObjectName("ubPenPropertiesPopup");
-    setStyleSheet("QWidget#ubPenPropertiesPopup { background-color: #303030;"
-                  " border: 1px solid #808080; border-radius: 6px; }"
-                  "QLabel { color: white; }");
+    setStyleSheet("QWidget#ubPenPropertiesPopup { background-color: #FFFFFF;"
+                  " border: 1px solid #E0E0DD; border-radius: 12px; }"
+                  "QLabel { color: #3A3A38; }");
 
     QVBoxLayout* outer = new QVBoxLayout(this);
-    outer->setContentsMargins(10, 10, 10, 10);
-    outer->setSpacing(8);
+    outer->setContentsMargins(10, 8, 10, 8);
+    outer->setSpacing(6);
 
     mColourGrid = new QGridLayout();
-    mColourGrid->setSpacing(4);
+    mColourGrid->setSpacing(2);
     outer->addLayout(mColourGrid);
 
     QHBoxLayout* widthRow = new QHBoxLayout();
@@ -94,20 +106,20 @@ UBPenPropertiesPopup::UBPenPropertiesPopup(QWidget* parent)
     // Stepper buttons flank the slider: a fingertip can nudge the width by one
     // step reliably, which dragging a slider on a touchscreen often cannot.
     const QString stepperCss =
-            "QToolButton { color: white; background: #4a4a4a; border: none;"
-            " border-radius: 6px; font-size: 22px; font-weight: bold; }"
-            "QToolButton:pressed { background: #6a6a6a; }";
+            "QToolButton { color: #3A3A38; background: #F2F2F0; border: 1px solid #D0D0CC;"
+            " border-radius: 8px; font-size: 17px; font-weight: bold; }"
+            "QToolButton:pressed { background: #E5E3DC; }";
 
     QToolButton* decrease = new QToolButton(this);
     decrease->setText(QStringLiteral("-"));
-    decrease->setFixedSize(44, 44);
+    decrease->setFixedSize(32, 32);
     decrease->setAutoRepeat(true);
     decrease->setStyleSheet(stepperCss);
     decrease->setToolTip(tr("Thinner"));
 
     QToolButton* increase = new QToolButton(this);
     increase->setText(QStringLiteral("+"));
-    increase->setFixedSize(44, 44);
+    increase->setFixedSize(32, 32);
     increase->setAutoRepeat(true);
     increase->setStyleSheet(stepperCss);
     increase->setToolTip(tr("Thicker"));
@@ -115,18 +127,18 @@ UBPenPropertiesPopup::UBPenPropertiesPopup(QWidget* parent)
     mWidthSlider = new QSlider(Qt::Horizontal, this);
     mWidthSlider->setMinimum(1);
     mWidthSlider->setMaximum(60);          // halves; see widthChanged()
-    mWidthSlider->setMinimumWidth(240);
-    mWidthSlider->setFixedHeight(44);
+    mWidthSlider->setMinimumWidth(150);
+    mWidthSlider->setFixedHeight(30);
     mWidthSlider->setPageStep(2);
     // A fat groove and a large handle -- the default Qt slider is far too fine
     // to grab with a fingertip on a smartboard.
     mWidthSlider->setStyleSheet(
-            "QSlider::groove:horizontal { height: 12px; background: #555555;"
-            " border-radius: 6px; }"
-            "QSlider::sub-page:horizontal { height: 12px; background: #9a9a9a;"
-            " border-radius: 6px; }"
-            "QSlider::handle:horizontal { width: 32px; margin: -11px 0;"
-            " background: #f0f0f0; border-radius: 16px; }");
+            "QSlider::groove:horizontal { height: 6px; background: #E5E3DC;"
+            " border-radius: 3px; }"
+            "QSlider::sub-page:horizontal { height: 6px; background: #3A3A38;"
+            " border-radius: 3px; }"
+            "QSlider::handle:horizontal { width: 20px; margin: -7px 0;"
+            " background: #FFFFFF; border: 1px solid #B0B0AC; border-radius: 10px; }");
     connect(mWidthSlider, &QSlider::valueChanged, this, &UBPenPropertiesPopup::widthChanged);
 
     connect(decrease, &QToolButton::clicked, this, [this]() {
@@ -137,7 +149,7 @@ UBPenPropertiesPopup::UBPenPropertiesPopup(QWidget* parent)
     });
 
     mWidthPreview = new QLabel(this);
-    mWidthPreview->setFixedSize(72, 44);
+    mWidthPreview->setFixedSize(44, 30);
 
     widthRow->addWidget(decrease);
     widthRow->addWidget(mWidthSlider);
@@ -146,6 +158,41 @@ UBPenPropertiesPopup::UBPenPropertiesPopup(QWidget* parent)
     outer->addLayout(widthRow);
 
     buildColourGrid();
+}
+
+void UBPenPropertiesPopup::showEvent(QShowEvent* event)
+{
+    mShownAt.start();
+    qApp->installEventFilter(this);
+    QWidget::showEvent(event);
+}
+
+void UBPenPropertiesPopup::hideEvent(QHideEvent* event)
+{
+    qApp->removeEventFilter(this);
+    QWidget::hideEvent(event);
+}
+
+bool UBPenPropertiesPopup::eventFilter(QObject* watched, QEvent* event)
+{
+    if (isVisible()
+        && (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::TouchBegin))
+    {
+        // Ignore everything in the first 400 ms -- leftovers of the gesture
+        // that opened us.
+        if (mShownAt.elapsed() > 400)
+        {
+            QPoint globalPos = QCursor::pos();
+
+            if (event->type() == QEvent::MouseButtonPress)
+                globalPos = static_cast<QMouseEvent*>(event)->globalPosition().toPoint();
+
+            if (!geometry().contains(globalPos))
+                close();
+        }
+    }
+
+    return QWidget::eventFilter(watched, event);
 }
 
 void UBPenPropertiesPopup::buildColourGrid()
@@ -169,19 +216,23 @@ void UBPenPropertiesPopup::buildColourGrid()
     for (int i = 0; i < colours.count(); ++i)
     {
         QToolButton* swatch = new QToolButton(this);
-        swatch->setFixedSize(30, 30);
+        swatch->setFixedSize(26, 26);
         swatch->setAutoRaise(true);
         swatch->setCursor(Qt::PointingHandCursor);
+        swatch->setStyleSheet("QToolButton { border: none; background: transparent; }");
 
-        QPixmap pm(24, 24);
-        pm.fill(colours.at(i));
+        // Round chip with a light ring.
+        QPixmap pm(22, 22);
+        pm.fill(Qt::transparent);
         QPainter p(&pm);
-        p.setPen(QPen(QColor(0, 0, 0, 120), 1));
-        p.drawRect(0, 0, pm.width() - 1, pm.height() - 1);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setBrush(colours.at(i));
+        p.setPen(QPen(QColor(0xD0, 0xD0, 0xCC), 1));
+        p.drawEllipse(QRectF(0.5, 0.5, 21., 21.));
         p.end();
 
         swatch->setIcon(QIcon(pm));
-        swatch->setIconSize(QSize(24, 24));
+        swatch->setIconSize(QSize(22, 22));
         swatch->setToolTip(colours.at(i).name());
 
         connect(swatch, &QToolButton::clicked, this, [this, i]() {
@@ -197,11 +248,12 @@ void UBPenPropertiesPopup::buildColourGrid()
     // Anything not in the palette: writes the chosen colour into the current
     // index, which setPenColor() supports directly.
     QToolButton* more = new QToolButton(this);
-    more->setFixedSize(30, 30);
+    more->setFixedSize(26, 26);
     more->setAutoRaise(true);
     more->setText(QStringLiteral("+"));
     more->setToolTip(tr("Choose another colour"));
-    more->setStyleSheet("QToolButton { color: white; font-size: 18px; font-weight: bold; }");
+    more->setStyleSheet("QToolButton { color: #3A3A38; font-size: 15px; font-weight: bold;"
+                        " border: 1px solid #D0D0CC; border-radius: 13px; background: transparent; }");
     connect(more, &QToolButton::clicked, this, &UBPenPropertiesPopup::pickCustomColour);
     mColourGrid->addWidget(more, row, col);
 }
@@ -279,6 +331,13 @@ UBStylusPalette::UBStylusPalette(QWidget *parent, Qt::Orientation orient)
     UBApplication::mainWindow->actionSnapToShape->setProperty("ungrouped", true);
 
     actions << UBApplication::mainWindow->actionEraser;
+
+    // WistOpenboard fork: undo/redo on the dock -- in zen mode the toolbar that
+    // used to carry them is hidden.
+    actions << UBApplication::mainWindow->actionUndo;
+    UBApplication::mainWindow->actionUndo->setProperty("ungrouped", true);
+    actions << UBApplication::mainWindow->actionRedo;
+    UBApplication::mainWindow->actionRedo->setProperty("ungrouped", true);
     actions << UBApplication::mainWindow->actionMarker;
     actions << UBApplication::mainWindow->actionSelector;
     actions << UBApplication::mainWindow->actionPlay;
@@ -305,14 +364,9 @@ UBStylusPalette::UBStylusPalette(QWidget *parent, Qt::Orientation orient)
 
     // Snap-to-grid/angle removed
 
-    // WistOpenboard fork: full-screen toggle. Sits with the tools rather than in a
-    // top toolbar, because the whole point is to make the top toolbars go away.
-    mFullScreenAction = new QAction(QIcon(":/images/toolbar/display.png"), tr("Full screen"), this);
-    mFullScreenAction->setCheckable(true);
-    mFullScreenAction->setToolTip(tr("Full screen - hide the title bar and top toolbar"));
-    mFullScreenAction->setProperty("ungrouped", true);   // a toggle, not a tool choice
-    connect(mFullScreenAction, &QAction::toggled, this, &UBStylusPalette::toggleFullScreen);
-    actions << mFullScreenAction;
+    // WistOpenboard fork: the full-screen toggle used to live here; zen mode made
+    // it redundant (chrome is hidden by default and the title bar carries the
+    // window controls), so it was removed to keep the dock short.
 
     // Three vertical dots, painted in code (no font or theme pixmap involved).
     // The same icon serves both states -- dots read as "more" either way.
@@ -361,6 +415,11 @@ UBStylusPalette::UBStylusPalette(QWidget *parent, Qt::Orientation orient)
     adjustSizeAndPosition();
 
     initPosition();
+
+    // WistOpenboard fork: start minimised -- pen, eraser and the dots. The
+    // toggle re-centres it, so it comes up as a small pill at bottom-centre.
+    if (mCollapseAction)
+        mCollapseAction->setChecked(true);
 
     // WistOpenboard fork: hold the pen button for colour and width.
     if (UBActionPaletteButton* penButton = getButtonFromAction(UBApplication::mainWindow->actionPen))
@@ -471,10 +530,10 @@ void UBStylusPalette::setCollapsed(bool collapsed)
     resize(preferredSize());
     adjustSizeAndPosition();
 
-    // Expanding near the right screen edge grows the palette rightwards, off
-    // screen. adjustSizeAndPosition() only re-clamps when IT changes the size,
-    // and the resize above already did -- so clamp explicitly.
-    moveInsideParent(pos());
+    // Re-centre on the bottom edge after every collapse/expand, so the dock
+    // always sits centred regardless of the size it just changed to. (This
+    // also keeps it on-screen, which the explicit clamp used to handle.)
+    initPosition();
 }
 
 void UBStylusPalette::showPenProperties()

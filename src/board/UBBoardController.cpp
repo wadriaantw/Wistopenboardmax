@@ -885,8 +885,8 @@ void UBBoardController::setupToolbar()
         };
 
         QIcon scrollIcon;
-        scrollIcon.addPixmap(scrollPixmap(QColor(0x33, 0x33, 0x33)), QIcon::Normal, QIcon::Off);
-        scrollIcon.addPixmap(scrollPixmap(QColor(0x00, 0x78, 0xd7)), QIcon::Normal, QIcon::On);
+        scrollIcon.addPixmap(scrollPixmap(QColor(0x5A, 0x5A, 0x56)), QIcon::Normal, QIcon::Off);
+        scrollIcon.addPixmap(scrollPixmap(QColor(0x1A, 0x1A, 0x1A)), QIcon::Normal, QIcon::On);
 
         QAction* scrollAction = new QAction(scrollIcon, tr("Scroll"), this);
         scrollAction->setCheckable(true);
@@ -923,7 +923,7 @@ void UBBoardController::setupToolbar()
         clockLabel->setContentsMargins(8, 0, 12, 0);
         clockLabel->setStyleSheet(
             "QLabel#taiwanClockLabel {"
-            " color: #222222;"
+            " color: #8A8A86;"
             " font-size: 16px;"
             " font-weight: bold;"
             " padding-left: 8px;"
@@ -944,6 +944,109 @@ void UBBoardController::setupToolbar()
         clockTimer->start();
 
         mMainWindow->boardToolBar->addWidget(clockLabel);
+    }
+
+    //--- Zen mode --------------------------------------------------------//
+    // WistOpenboard fork: the board starts with no chrome at all -- no toolbar,
+    // no tabs strip. A small round button in the top-left corner summons them
+    // back for the occasional task (backgrounds, library, other documents) and
+    // tucks them away again. Everyday tools live on the floating dock.
+    {
+        const bool zenOn = UBSettings::settings()->appZenMode->get().toBool();
+
+        QToolButton* chromeButton = new QToolButton(mControlContainer);
+        chromeButton->setObjectName("ubZenChromeButton");
+        chromeButton->setToolTip(tr("Show or hide the toolbar"));
+        chromeButton->setCursor(Qt::PointingHandCursor);
+        chromeButton->setFixedSize(34, 34);
+        chromeButton->setStyleSheet(
+            "QToolButton#ubZenChromeButton { background: rgba(255,255,255,235);"
+            " border: 1px solid #E0E0DD; border-radius: 17px; }"
+            "QToolButton#ubZenChromeButton:hover { background: #F2F2F0; }");
+
+        QPixmap linesPixmap(34, 34);
+        linesPixmap.fill(Qt::transparent);
+        {
+            QPainter p(&linesPixmap);
+            p.setRenderHint(QPainter::Antialiasing, true);
+            QPen pen(QColor(0x3A, 0x3A, 0x38));
+            pen.setWidthF(2.0);
+            pen.setCapStyle(Qt::RoundCap);
+            p.setPen(pen);
+            for (int i = 0; i < 3; ++i)
+                p.drawLine(QPointF(11, 12 + i * 5), QPointF(23, 12 + i * 5));
+        }
+        chromeButton->setIcon(QIcon(linesPixmap));
+        chromeButton->setIconSize(QSize(34, 34));
+
+        auto setChromeVisible = [this](bool visible) {
+            mZenChromeHidden = !visible;
+            mMainWindow->boardToolBar->setVisible(visible);
+            if (mMainWindow->documentTabsToolBar())
+                mMainWindow->documentTabsToolBar()->setVisible(visible);
+
+            // The page arrows only earn their place while the toolbar (which has
+            // its own page buttons) is hidden.
+            if (mZenPrevButton)
+                mZenPrevButton->setVisible(!visible);
+            if (mZenNextButton)
+                mZenNextButton->setVisible(!visible);
+        };
+
+        connect(chromeButton, &QToolButton::clicked, this, [this, setChromeVisible]() {
+            setChromeVisible(!mMainWindow->boardToolBar->isVisible());
+        });
+
+        if (zenOn)
+            setChromeVisible(false);
+
+        // Page arrows either side of the chrome button: previous / next page
+        // without opening any chrome.
+        auto makeZenArrow = [this](bool pointsRight) {
+            QToolButton* arrowButton = new QToolButton(mControlContainer);
+            arrowButton->setObjectName("ubZenChromeButton");
+            arrowButton->setCursor(Qt::PointingHandCursor);
+            arrowButton->setFixedSize(34, 34);
+            arrowButton->setStyleSheet(
+                "QToolButton#ubZenChromeButton { background: rgba(255,255,255,235);"
+                " border: 1px solid #E0E0DD; border-radius: 17px; }"
+                "QToolButton#ubZenChromeButton:hover { background: #F2F2F0; }");
+
+            QPixmap arrowPixmap(34, 34);
+            arrowPixmap.fill(Qt::transparent);
+            {
+                QPainter p(&arrowPixmap);
+                p.setRenderHint(QPainter::Antialiasing, true);
+                QPen pen(QColor(0x3A, 0x3A, 0x38));
+                pen.setWidthF(2.0);
+                pen.setCapStyle(Qt::RoundCap);
+                pen.setJoinStyle(Qt::RoundJoin);
+                p.setPen(pen);
+                const qreal dir = pointsRight ? 1.0 : -1.0;
+                p.drawLine(QPointF(17 - dir * 2.5, 11), QPointF(17 + dir * 2.5, 17));
+                p.drawLine(QPointF(17 + dir * 2.5, 17), QPointF(17 - dir * 2.5, 23));
+            }
+            arrowButton->setIcon(QIcon(arrowPixmap));
+            arrowButton->setIconSize(QSize(34, 34));
+            return arrowButton;
+        };
+
+        mZenPrevButton = makeZenArrow(false);
+        mZenPrevButton->setToolTip(tr("Previous page"));
+        connect(mZenPrevButton, &QToolButton::clicked, this, [this]() { previousScene(); });
+
+        mZenNextButton = makeZenArrow(true);
+        mZenNextButton->setToolTip(tr("Next page"));
+        connect(mZenNextButton, &QToolButton::clicked, this, [this]() { nextScene(); });
+
+        // Top-centre: both dock drawers own the side edges, so the corner
+        // overlapped the page-thumbnails tab. The centre of the top edge is
+        // the one spot no drawer reaches.
+        mZenChromeButton = chromeButton;
+        positionZenButtons();
+        chromeButton->show();
+        mZenPrevButton->setVisible(mZenChromeHidden);
+        mZenNextButton->setVisible(mZenChromeHidden);
     }
 
     // WistOpenboard fork: the window title bar now provides minimise / maximise /
@@ -1769,6 +1872,34 @@ void UBBoardController::restoreViewPositionOnCurrentScene() const
         mControlView->setTransform(transform);
         centerOn(viewState.mLastSceneCenter);
     }
+}
+
+// WistOpenboard fork: lay out the zen cluster -- previous page, chrome toggle,
+// next page -- centred on the top edge of the board.
+void UBBoardController::positionZenButtons()
+{
+    if (!mZenChromeButton || !mControlContainer)
+        return;
+
+    const int cx = mControlContainer->width() / 2;
+    const int y = 8;
+    const int gap = 10;
+
+    mZenChromeButton->move(cx - mZenChromeButton->width() / 2, y);
+
+    if (mZenPrevButton)
+    {
+        mZenPrevButton->move(cx - mZenChromeButton->width() / 2 - gap - mZenPrevButton->width(), y);
+        mZenPrevButton->raise();
+    }
+
+    if (mZenNextButton)
+    {
+        mZenNextButton->move(cx + mZenChromeButton->width() / 2 + gap, y);
+        mZenNextButton->raise();
+    }
+
+    mZenChromeButton->raise();
 }
 
 void UBBoardController::previousScene()
@@ -2900,6 +3031,9 @@ void UBBoardController::boardViewResized(QResizeEvent* event)
     }
 
     mPaletteManager->containerResized();
+
+    // WistOpenboard fork: keep the zen buttons centred on the top edge.
+    positionZenButtons();
 
     UBApplication::boardController->controlView()->scene()->moveMagnifier();
 

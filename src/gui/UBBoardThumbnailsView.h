@@ -117,6 +117,8 @@ private:
 
         virtual int columnCount() const override;
         virtual double thumbnailWidth() const override;
+        virtual QMarginsF margins() const override;   // WistOpenboard fork: slimmer than the 20px shared default
+        virtual QSizeF spacing() const override;
     };
 };
 

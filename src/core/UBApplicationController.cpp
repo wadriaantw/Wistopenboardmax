@@ -355,8 +355,15 @@ void UBApplicationController::showBoard()
 {
     mMainWindow->webToolBar->hide();
     mMainWindow->documentToolBar->hide();
-    mMainWindow->boardToolBar->show();
-    mMainWindow->setDocumentTabsVisible(true);
+
+    // WistOpenboard fork: zen mode keeps the top chrome tucked away. Without
+    // this guard every switch back to Board mode (including startup) undid the
+    // zen hide by unconditionally re-showing toolbar and tabs.
+    const bool zenHidden = UBApplication::boardController
+            && UBApplication::boardController->zenChromeHidden();
+
+    mMainWindow->boardToolBar->setVisible(!zenHidden);
+    mMainWindow->setDocumentTabsVisible(!zenHidden);
 
     if (mMainMode == Document)
     {

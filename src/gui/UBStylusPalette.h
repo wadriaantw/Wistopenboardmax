@@ -32,6 +32,7 @@
 
 #include <QButtonGroup>
 #include <QGridLayout>
+#include <QElapsedTimer>
 #include <QWidget>
 #include <QList>
 #include <QPointer>
@@ -61,12 +62,18 @@ class UBPenPropertiesPopup : public QWidget
         void pickCustomColour();
         void widthChanged(int sliderValue);
 
+    protected:
+        virtual void showEvent(QShowEvent* event) override;
+        virtual void hideEvent(QHideEvent* event) override;
+        virtual bool eventFilter(QObject* watched, QEvent* event) override;
+
     private:
         void buildColourGrid();
 
         QGridLayout* mColourGrid = nullptr;
         QSlider* mWidthSlider = nullptr;
         QLabel* mWidthPreview = nullptr;
+        QElapsedTimer mShownAt;
 };
 
 class UBStylusPalette : public UBActionPalette

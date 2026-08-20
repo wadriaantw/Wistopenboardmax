@@ -425,3 +425,16 @@ double UBBoardThumbnailsView::UBBoardThumbnailArranger::thumbnailWidth() const
 {
     return availableViewWidth();
 }
+
+// WistOpenboard fork: the shared 20px margins ate 40px of a ~170px drawer.
+// Slim margins so the page previews get the width instead.
+QMarginsF UBBoardThumbnailsView::UBBoardThumbnailArranger::margins() const
+{
+    // Right margin minimal: the scrollbar already separates content from edge.
+    return {6., 8., 2., 8.};
+}
+
+QSizeF UBBoardThumbnailsView::UBBoardThumbnailArranger::spacing() const
+{
+    return {8., 6.};
+}

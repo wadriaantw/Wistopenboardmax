@@ -60,6 +60,7 @@ class UBSoftwareUpdateDialog;
 class UBGraphicsMediaItem;
 class UBGraphicsWidgetItem;
 class UBBoardPaletteManager;
+class QToolButton;
 class UBItem;
 class UBGraphicsItem;
 
@@ -89,6 +90,12 @@ class UBBoardController : public UBDocumentContainer
         // after continuous scrolling promotes a new one, so the page readout and
         // the thumbnail sidebar follow along.
         void notifyPageSelectionChanged() { emit pageSelectionChanged(activeSceneIndex()); }
+
+        // WistOpenboard fork: zen mode -- whether the top chrome (toolbar + tabs)
+        // is currently tucked away. showBoard() consults this, because it
+        // unconditionally re-shows the toolbar on every switch to Board mode.
+        bool zenChromeHidden() const { return mZenChromeHidden; }
+        void positionZenButtons(); // WistOpenboard fork
         void setActiveSceneIndex(int i);
         void closing();
 
@@ -356,6 +363,10 @@ class UBBoardController : public UBDocumentContainer
         qreal mSystemScaleFactor;
         mutable bool mDocumentJustOpened = false;
         mutable bool mResetViewToTopOnSceneChange = false;
+        bool mZenChromeHidden = false; // WistOpenboard fork
+        QToolButton* mZenChromeButton = nullptr; // WistOpenboard fork
+        QToolButton* mZenPrevButton = nullptr;   // WistOpenboard fork
+        QToolButton* mZenNextButton = nullptr;   // WistOpenboard fork
         bool mInInit = false;
         bool mInitialIsFreshlyCreated = true;
         bool mCleanupDone;
