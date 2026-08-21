@@ -36,6 +36,7 @@
 #include "frameworks/UBPlatformUtils.h"
 
 #include "core/UBSettings.h"
+#include "core/UBTheme.h"
 #include "core/UBApplication.h"
 #include "core/UBDisplayManager.h"
 #include "core/UBPreferencesController.h"
@@ -663,15 +664,16 @@ void UBTabDockPalette::paintEvent(QPaintEvent *)
 
         painter.save();
         if (dock->mCurrentTab != i) {
-            QColor color(0xF2, 0xF2, 0xF0, 0xE0);
-            painter.setBrush(QBrush(color));
+            QColor inactive = UBTheme::surfaceMuted();
+            inactive.setAlpha(0xE0);
+            painter.setBrush(QBrush(inactive));
         }
 
         // WistOpenboard fork: minimalist tab -- hairline outline and a painted
         // chevron pointing the way the drawer will move, instead of the legacy
         // arrow + icon pixmaps (iconPixmap is left untouched for other themes).
         Q_UNUSED(iconPixmap);
-        painter.setPen(QPen(QColor(0xE0, 0xE0, 0xDD), 1));
+        painter.setPen(QPen(UBTheme::ring(), 1));
         painter.drawPath(path);
 
         {
@@ -679,7 +681,7 @@ void UBTabDockPalette::paintEvent(QPaintEvent *)
             // Chevron points outward when expandable, inward when collapsible.
             bool pointsRight = (dock->mOrientation == eUBDockOrientation_Left) ? collapsed : !collapsed;
 
-            QPen chevronPen(QColor(0x5A, 0x5A, 0x56));
+            QPen chevronPen(UBTheme::ink());
             chevronPen.setWidthF(2.0);
             chevronPen.setCapStyle(Qt::RoundCap);
             chevronPen.setJoinStyle(Qt::RoundJoin);

@@ -59,6 +59,7 @@
 #include "document/UBDocumentProxy.h"
 
 #include "gui/UBMainWindow.h"
+#include "gui/UBModernIcons.h"
 #include "gui/UBResources.h"
 #include "gui/UBThumbnail.h"
 #include "gui/UBStartupHintsPalette.h"
@@ -150,7 +151,11 @@ UBApplication::UBApplication(const QString &id, int &argc, char **argv) : Single
 
     setStyle("fusion");
 
-    QString css = UBFileSystemUtils::readTextFile(UBPlatformUtils::applicationEtcDirectory() + "/"+ qApp->applicationName()+".css");
+    // WistOpenboard fork: App/DarkTheme selects the dark stylesheet variant.
+    const QString cssName = UBSettings::settings()->appDarkTheme->get().toBool()
+            ? qApp->applicationName() + "-dark.css"
+            : qApp->applicationName() + ".css";
+    QString css = UBFileSystemUtils::readTextFile(UBPlatformUtils::applicationEtcDirectory() + "/" + cssName);
     if (css.length() > 0)
         setStyleSheet(css);
 
@@ -389,6 +394,9 @@ int UBApplication::exec(const QString& pFileToImport)
 
 
     toolBarPositionChanged(UBSettings::settings()->appToolBarPositionedAtTop->get());
+
+    // WistOpenboard fork: swap the legacy pixmap icons for the painted line set.
+    UBModernIcons::apply(mainWindow);
 
     bool bUseMultiScreen = UBSettings::settings()->appUseMultiscreen->get().toBool();
     mainWindow->actionMultiScreen->setChecked(bUseMultiScreen);

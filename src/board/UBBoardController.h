@@ -96,6 +96,7 @@ class UBBoardController : public UBDocumentContainer
         // unconditionally re-shows the toolbar on every switch to Board mode.
         bool zenChromeHidden() const { return mZenChromeHidden; }
         void positionZenButtons(); // WistOpenboard fork
+        static QString zenButtonCss(); // WistOpenboard fork
         void setActiveSceneIndex(int i);
         void closing();
 
@@ -367,6 +368,7 @@ class UBBoardController : public UBDocumentContainer
         QToolButton* mZenChromeButton = nullptr; // WistOpenboard fork
         QToolButton* mZenPrevButton = nullptr;   // WistOpenboard fork
         QToolButton* mZenNextButton = nullptr;   // WistOpenboard fork
+        QToolButton* mZenPageChip = nullptr;     // WistOpenboard fork
         bool mInInit = false;
         bool mInitialIsFreshlyCreated = true;
         bool mCleanupDone;

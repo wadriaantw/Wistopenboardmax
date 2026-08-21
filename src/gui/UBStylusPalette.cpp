@@ -53,6 +53,7 @@
 
 #include "core/UBApplication.h"
 #include "core/UBSettings.h"
+#include "core/UBTheme.h"
 #include "core/UBApplicationController.h"
 #include "core/UBShortcutManager.h"
 
@@ -88,9 +89,10 @@ UBPenPropertiesPopup::UBPenPropertiesPopup(QWidget* parent)
     setAttribute(Qt::WA_TranslucentBackground);   // lets the rounded corners clip
     setAttribute(Qt::WA_StyledBackground);        // custom QWidget subclasses skip stylesheet backgrounds without this
     setObjectName("ubPenPropertiesPopup");
-    setStyleSheet("QWidget#ubPenPropertiesPopup { background-color: #FFFFFF;"
-                  " border: 1px solid #E0E0DD; border-radius: 12px; }"
-                  "QLabel { color: #3A3A38; }");
+    setStyleSheet(QString("QWidget#ubPenPropertiesPopup { background-color: %1;"
+                  " border: 1px solid %2; border-radius: 12px; }"
+                  "QLabel { color: %3; }")
+                  .arg(UBTheme::hex(UBTheme::surface()), UBTheme::hex(UBTheme::ring()), UBTheme::hex(UBTheme::ink())));
 
     QVBoxLayout* outer = new QVBoxLayout(this);
     outer->setContentsMargins(10, 8, 10, 8);
@@ -105,10 +107,12 @@ UBPenPropertiesPopup::UBPenPropertiesPopup(QWidget* parent)
 
     // Stepper buttons flank the slider: a fingertip can nudge the width by one
     // step reliably, which dragging a slider on a touchscreen often cannot.
-    const QString stepperCss =
-            "QToolButton { color: #3A3A38; background: #F2F2F0; border: 1px solid #D0D0CC;"
+    const QString stepperCss = QString(
+            "QToolButton { color: %1; background: %2; border: 1px solid %3;"
             " border-radius: 8px; font-size: 17px; font-weight: bold; }"
-            "QToolButton:pressed { background: #E5E3DC; }";
+            "QToolButton:pressed { background: %4; }")
+            .arg(UBTheme::hex(UBTheme::ink()), UBTheme::hex(UBTheme::surfaceMuted()),
+                 UBTheme::hex(UBTheme::ring()), UBTheme::hex(UBTheme::surfacePressed()));
 
     QToolButton* decrease = new QToolButton(this);
     decrease->setText(QStringLiteral("-"));
@@ -132,13 +136,15 @@ UBPenPropertiesPopup::UBPenPropertiesPopup(QWidget* parent)
     mWidthSlider->setPageStep(2);
     // A fat groove and a large handle -- the default Qt slider is far too fine
     // to grab with a fingertip on a smartboard.
-    mWidthSlider->setStyleSheet(
-            "QSlider::groove:horizontal { height: 6px; background: #E5E3DC;"
+    mWidthSlider->setStyleSheet(QString(
+            "QSlider::groove:horizontal { height: 6px; background: %1;"
             " border-radius: 3px; }"
-            "QSlider::sub-page:horizontal { height: 6px; background: #3A3A38;"
+            "QSlider::sub-page:horizontal { height: 6px; background: %2;"
             " border-radius: 3px; }"
             "QSlider::handle:horizontal { width: 20px; margin: -7px 0;"
-            " background: #FFFFFF; border: 1px solid #B0B0AC; border-radius: 10px; }");
+            " background: %3; border: 1px solid %4; border-radius: 10px; }")
+            .arg(UBTheme::hex(UBTheme::surfacePressed()), UBTheme::hex(UBTheme::ink()),
+                 UBTheme::hex(UBTheme::surface()), UBTheme::hex(UBTheme::ring())));
     connect(mWidthSlider, &QSlider::valueChanged, this, &UBPenPropertiesPopup::widthChanged);
 
     connect(decrease, &QToolButton::clicked, this, [this]() {
@@ -206,8 +212,13 @@ void UBPenPropertiesPopup::buildColourGrid()
         delete item;
     }
 
+    if (mTool == PopupTool::Eraser)
+        return;                     // the eraser has no colour
+
     const bool onDark = ubOnDarkBackground();
-    const QList<QColor> colours = UBSettings::settings()->penColors(onDark);
+    const QList<QColor> colours = (mTool == PopupTool::Marker)
+            ? UBSettings::settings()->markerColors(onDark)
+            : UBSettings::settings()->penColors(onDark);
 
     int row = 0;
     int col = 0;
@@ -227,7 +238,7 @@ void UBPenPropertiesPopup::buildColourGrid()
         QPainter p(&pm);
         p.setRenderHint(QPainter::Antialiasing, true);
         p.setBrush(colours.at(i));
-        p.setPen(QPen(QColor(0xD0, 0xD0, 0xCC), 1));
+        p.setPen(QPen(UBTheme::ring(), 1));
         p.drawEllipse(QRectF(0.5, 0.5, 21., 21.));
         p.end();
 
@@ -252,8 +263,9 @@ void UBPenPropertiesPopup::buildColourGrid()
     more->setAutoRaise(true);
     more->setText(QStringLiteral("+"));
     more->setToolTip(tr("Choose another colour"));
-    more->setStyleSheet("QToolButton { color: #3A3A38; font-size: 15px; font-weight: bold;"
-                        " border: 1px solid #D0D0CC; border-radius: 13px; background: transparent; }");
+    more->setStyleSheet(QString("QToolButton { color: %1; font-size: 15px; font-weight: bold;"
+                        " border: 1px solid %2; border-radius: 13px; background: transparent; }")
+                        .arg(UBTheme::hex(UBTheme::ink()), UBTheme::hex(UBTheme::ring())));
     connect(more, &QToolButton::clicked, this, &UBPenPropertiesPopup::pickCustomColour);
     mColourGrid->addWidget(more, row, col);
 }
@@ -263,12 +275,20 @@ void UBPenPropertiesPopup::pickCustomColour()
     const bool onDark = ubOnDarkBackground();
     const int index = UBDrawingController::drawingController()->currentToolColorIndex();
 
-    QColor chosen = QColorDialog::getColor(UBSettings::settings()->penColor(onDark),
-                                           this, tr("Pen colour"));
+    const QColor current = (mTool == PopupTool::Marker)
+            ? UBSettings::settings()->markerColor(onDark)
+            : UBSettings::settings()->penColor(onDark);
+
+    QColor chosen = QColorDialog::getColor(current, this,
+            mTool == PopupTool::Marker ? tr("Marker colour") : tr("Pen colour"));
 
     if (chosen.isValid())
     {
-        UBDrawingController::drawingController()->setPenColor(onDark, chosen, index);
+        if (mTool == PopupTool::Marker)
+            UBDrawingController::drawingController()->setMarkerColor(onDark, chosen, index);
+        else
+            UBDrawingController::drawingController()->setPenColor(onDark, chosen, index);
+
         UBDrawingController::drawingController()->setColorIndex(index);
         buildColourGrid();
     }
@@ -281,15 +301,38 @@ void UBPenPropertiesPopup::widthChanged(int sliderValue)
     // The slider is continuous, but OpenBoard stores one width per size index --
     // so the value lands on whichever of fine/medium/strong is selected. The three
     // toolbar sizes keep working; they just become the teacher's own three.
-    const qreal width = sliderValue / 2.0;      // 0.5 .. 30.0
+    const qreal width = sliderValue / 2.0;
     UBSettings* settings = UBSettings::settings();
 
-    switch (settings->penWidthIndex())
+    if (mTool == PopupTool::Marker)
     {
-        case UBWidth::Medium: settings->boardPenMediumWidth->set(width); break;
-        case UBWidth::Strong: settings->boardPenStrongWidth->set(width); break;
-        case UBWidth::Fine:
-        default:              settings->boardPenFineWidth->set(width);   break;
+        switch (settings->markerWidthIndex())
+        {
+            case UBWidth::Medium: settings->boardMarkerMediumWidth->set(width); break;
+            case UBWidth::Strong: settings->boardMarkerStrongWidth->set(width); break;
+            case UBWidth::Fine:
+            default:              settings->boardMarkerFineWidth->set(width);   break;
+        }
+    }
+    else if (mTool == PopupTool::Eraser)
+    {
+        switch (settings->eraserWidthIndex())
+        {
+            case UBWidth::Medium: settings->setEraserMediumWidth(width); break;
+            case UBWidth::Strong: settings->setEraserStrongWidth(width); break;
+            case UBWidth::Fine:
+            default:              settings->setEraserFineWidth(width);   break;
+        }
+    }
+    else
+    {
+        switch (settings->penWidthIndex())
+        {
+            case UBWidth::Medium: settings->boardPenMediumWidth->set(width); break;
+            case UBWidth::Strong: settings->boardPenStrongWidth->set(width); break;
+            case UBWidth::Fine:
+            default:              settings->boardPenFineWidth->set(width);   break;
+        }
     }
 
     // Preview dot, drawn at the real width in the real colour.
@@ -297,7 +340,15 @@ void UBPenPropertiesPopup::widthChanged(int sliderValue)
     pm.fill(Qt::transparent);
     QPainter p(&pm);
     p.setRenderHint(QPainter::Antialiasing, true);
-    p.setBrush(UBSettings::settings()->penColor(ubOnDarkBackground()));
+    QColor previewColour;
+    switch (mTool)
+    {
+        case PopupTool::Marker: previewColour = UBSettings::settings()->markerColor(ubOnDarkBackground()); break;
+        case PopupTool::Eraser: previewColour = UBTheme::inkMuted(); break;
+        case PopupTool::Pen:
+        default:                previewColour = UBSettings::settings()->penColor(ubOnDarkBackground()); break;
+    }
+    p.setBrush(previewColour);
     p.setPen(Qt::NoPen);
     const qreal d = qMin<qreal>(width, pm.height() - 2);
     p.drawEllipse(QPointF(pm.width() / 2.0, pm.height() / 2.0), d / 2.0, d / 2.0);
@@ -305,12 +356,34 @@ void UBPenPropertiesPopup::widthChanged(int sliderValue)
     mWidthPreview->setPixmap(pm);
 }
 
-void UBPenPropertiesPopup::refresh()
+void UBPenPropertiesPopup::refresh(PopupTool tool)
 {
+    mTool = tool;
+
     buildColourGrid();
 
-    const int slider = qBound(1, int(UBSettings::settings()->currentPenWidth() * 2.0), 60);
+    qreal width = 3.0;
+    int maximum = 60;               // slider carries half-units
+
+    switch (mTool)
+    {
+        case PopupTool::Marker:
+            width = UBSettings::settings()->currentMarkerWidth();
+            maximum = 120;
+            break;
+        case PopupTool::Eraser:
+            width = UBSettings::settings()->currentEraserWidth();
+            maximum = 300;
+            break;
+        case PopupTool::Pen:
+        default:
+            width = UBSettings::settings()->currentPenWidth();
+            break;
+    }
+
     mWidthSlider->blockSignals(true);
+    mWidthSlider->setMaximum(maximum);
+    const int slider = qBound(1, int(width * 2.0), maximum);
     mWidthSlider->setValue(slider);
     mWidthSlider->blockSignals(false);
     widthChanged(slider);
@@ -364,10 +437,6 @@ UBStylusPalette::UBStylusPalette(QWidget *parent, Qt::Orientation orient)
 
     // Snap-to-grid/angle removed
 
-    // WistOpenboard fork: the full-screen toggle used to live here; zen mode made
-    // it redundant (chrome is hidden by default and the title bar carries the
-    // window controls), so it was removed to keep the dock short.
-
     // Three vertical dots, painted in code (no font or theme pixmap involved).
     // The same icon serves both states -- dots read as "more" either way.
     QPixmap dotsPixmap(24, 34);
@@ -376,7 +445,7 @@ UBStylusPalette::UBStylusPalette(QWidget *parent, Qt::Orientation orient)
         QPainter p(&dotsPixmap);
         p.setRenderHint(QPainter::Antialiasing, true);
         p.setPen(Qt::NoPen);
-        p.setBrush(QColor(0x30, 0x30, 0x30));
+        p.setBrush(UBTheme::ink());
         for (int i = 0; i < 3; ++i)
             p.drawEllipse(QPointF(12, 11 + i * 6), 2.2, 2.2);
     }
@@ -421,9 +490,21 @@ UBStylusPalette::UBStylusPalette(QWidget *parent, Qt::Orientation orient)
     if (mCollapseAction)
         mCollapseAction->setChecked(true);
 
-    // WistOpenboard fork: hold the pen button for colour and width.
+    // WistOpenboard fork: hold pen / marker / eraser for their properties.
     if (UBActionPaletteButton* penButton = getButtonFromAction(UBApplication::mainWindow->actionPen))
-        connect(penButton, &UBActionPaletteButton::longPressed, this, &UBStylusPalette::showPenProperties);
+        connect(penButton, &UBActionPaletteButton::longPressed, this, [this]() {
+            showToolProperties(UBPenPropertiesPopup::PopupTool::Pen, UBApplication::mainWindow->actionPen);
+        });
+
+    if (UBActionPaletteButton* markerButton = getButtonFromAction(UBApplication::mainWindow->actionMarker))
+        connect(markerButton, &UBActionPaletteButton::longPressed, this, [this]() {
+            showToolProperties(UBPenPropertiesPopup::PopupTool::Marker, UBApplication::mainWindow->actionMarker);
+        });
+
+    if (UBActionPaletteButton* eraserButton = getButtonFromAction(UBApplication::mainWindow->actionEraser))
+        connect(eraserButton, &UBActionPaletteButton::longPressed, this, [this]() {
+            showToolProperties(UBPenPropertiesPopup::PopupTool::Eraser, UBApplication::mainWindow->actionEraser);
+        });
 
     foreach(const UBActionPaletteButton* button, mButtons)
     {
@@ -536,22 +617,60 @@ void UBStylusPalette::setCollapsed(bool collapsed)
     initPosition();
 }
 
-void UBStylusPalette::showPenProperties()
+// WistOpenboard fork: three grip dots on the leading-edge grab strip, so the
+// dock visibly says "drag me here". The strip itself has existed all along;
+// nothing marked it.
+void UBStylusPalette::paintEvent(QPaintEvent* event)
+{
+    UBActionPalette::paintEvent(event);
+
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(UBTheme::ring());
+
+    QBoxLayout* box = qobject_cast<QBoxLayout*>(layout());
+    const bool horizontal = box
+            && (box->direction() == QBoxLayout::LeftToRight
+                || box->direction() == QBoxLayout::RightToLeft);
+
+    if (horizontal)
+    {
+        const qreal x = 9.0;
+        const qreal cy = height() / 2.0;
+        for (int i = -1; i <= 1; ++i)
+            painter.drawEllipse(QPointF(x, cy + i * 6.0), 1.7, 1.7);
+    }
+    else
+    {
+        const qreal y = 9.0;
+        const qreal cx = width() / 2.0;
+        for (int i = -1; i <= 1; ++i)
+            painter.drawEllipse(QPointF(cx + i * 6.0, y), 1.7, 1.7);
+    }
+}
+
+void UBStylusPalette::showToolProperties(UBPenPropertiesPopup::PopupTool tool, QAction* anchorAction)
 {
     UBMainWindow* mainWindow = UBApplication::mainWindow;
 
     if (!mainWindow)
         return;
 
+    // Select the tool the popup configures, so the changes apply to what the
+    // teacher is about to use.
+    if (anchorAction && !anchorAction->isChecked())
+        anchorAction->trigger();
+
     if (!mPenPropertiesPopup)
         mPenPropertiesPopup = new UBPenPropertiesPopup(this);
 
-    mPenPropertiesPopup->refresh();
+    mPenPropertiesPopup->refresh(tool);
 
     // Centre it directly over the pen button and sit it just above, so the
     // teacher's hand is already in the right place. Falls below the button if
     // there is no room above.
-    UBActionPaletteButton* penButton = getButtonFromAction(mainWindow->actionPen);
+    UBActionPaletteButton* penButton = getButtonFromAction(anchorAction ? anchorAction : mainWindow->actionPen);
     QWidget* anchor = penButton ? static_cast<QWidget*>(penButton) : static_cast<QWidget*>(this);
 
     const QSize popupSize = mPenPropertiesPopup->sizeHint();
@@ -575,53 +694,6 @@ void UBStylusPalette::showPenProperties()
     mPenPropertiesPopup->raise();
 }
 
-void UBStylusPalette::toggleFullScreen(bool on)
-{
-    UBMainWindow* mainWindow = UBApplication::mainWindow;
-
-    if (!mainWindow)
-        return;
-
-    if (on)
-    {
-        // Remember exactly which toolbars were up: only the one for the current
-        // main mode is visible, so blindly showing all three on the way out would
-        // surface toolbars that are meant to stay hidden.
-        mHiddenToolBars.clear();
-        mWasMaximized = mainWindow->isMaximized();
-
-        const QList<QToolBar*> bars{mainWindow->boardToolBar,
-                                    mainWindow->webToolBar,
-                                    mainWindow->documentToolBar};
-
-        for (QToolBar* bar : bars)
-        {
-            if (bar && bar->isVisible())
-            {
-                mHiddenToolBars << bar;
-                bar->hide();
-            }
-        }
-
-        mainWindow->showFullScreen();
-    }
-    else
-    {
-        for (const QPointer<QToolBar>& bar : mHiddenToolBars)
-        {
-            if (bar)
-                bar->show();
-        }
-
-        mHiddenToolBars.clear();
-
-        // Come back to whatever the window was before, not an arbitrary size.
-        if (mWasMaximized)
-            mainWindow->showMaximized();
-        else
-            mainWindow->showNormal();
-    }
-}
 
 void UBStylusPalette::stylusToolDoubleClicked()
 {

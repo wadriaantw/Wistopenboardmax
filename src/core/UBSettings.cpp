@@ -29,6 +29,8 @@
 
 #include "UBSettings.h"
 
+#include "UBTheme.h"
+
 #include <QtGui>
 
 
@@ -98,7 +100,9 @@ QColor UBSettings::penCirclePenColorLightBackground = QColor(0, 0, 0, 127);
 QColor UBSettings::documentSizeMarkColorDarkBackground = QColor(44, 44, 44, 200);
 QColor UBSettings::documentSizeMarkColorLightBackground = QColor(241, 241, 241);
 
-QColor UBSettings::paletteColor = QColor(255, 255, 255, 246); // WistOpenboard fork: minimalist chrome (was 127,127,127,127)
+// WistOpenboard fork: light default at static-init time; re-assigned from
+// UBTheme once settings are loaded (see init) so dark mode reaches palettes.
+QColor UBSettings::paletteColor = QColor(255, 255, 255, 246);
 QColor UBSettings::opaquePaletteColor = QColor(66, 66, 66, 200);
 
 QColor UBSettings::documentViewLightColor = QColor(241, 241, 241);
@@ -294,6 +298,11 @@ void UBSettings::init()
     boardSnapToShape = new UBSetting(this, "Board", "SnapToShape", false); // WistOpenboard fork
     boardContinuousScroll = new UBSetting(this, "Board", "ContinuousScroll", false); // WistOpenboard fork
     appZenMode = new UBSetting(this, "App", "ZenMode", true); // WistOpenboard fork: start with all chrome hidden, board fills the screen
+    appDarkTheme = new UBSetting(this, "App", "DarkTheme", false); // WistOpenboard fork: dark variant of the minimalist skin (restart to apply)
+    appZenHintShown = new UBSetting(this, "App", "ZenHintShown", false); // WistOpenboard fork: one-time onboarding hint
+
+    // WistOpenboard fork: palettes pick up the themed surface colour.
+    paletteColor = UBTheme::paletteBackground();
     boardSimplifyPenStrokesThresholdAngle = new UBSetting(this, "Board", "SimplifyPenStrokesThresholdAngle", 2);
     boardSimplifyPenStrokesThresholdWidthDifference = new UBSetting(this, "Board", "SimplifyPenStrokesThresholdWidthDifference", 2.0);
 

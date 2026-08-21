@@ -22,6 +22,8 @@
 
 #include "UBThumbnail.h"
 
+#include "core/UBTheme.h"
+
 #include <QGraphicsPixmapItem>
 #include <QSvgRenderer>
 
@@ -42,6 +44,10 @@ UBThumbnail::UBThumbnail()
     , mTextItem{new UBThumbnailTextItem}
 {
     mTextItem->setParentItem(this);
+
+    // WistOpenboard fork: the page label was nearly unreadable on the light
+    // drawer; pin it to the themed muted ink.
+    mTextItem->setDefaultTextColor(UBTheme::inkMuted());
 
     // accept hover to show/hide UI buttons
     setAcceptHoverEvents(true);

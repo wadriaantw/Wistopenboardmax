@@ -139,6 +139,7 @@ public:
     QVector<UBDockPaletteWidget*> GetWidgetsList() { return mRegisteredWidgets; }
 
 public:
+    void toggleCollapseExpand(); // WistOpenboard fork: made public for the zen page chip
     bool isTabFlotable() {return mTabPalette->mFlotable;}
     void setTabFlotable(bool newFlotable) {mTabPalette->mFlotable = newFlotable;}
     int getAdditionalVOffset() const {return mTabPalette->mVerticalOffset;}
@@ -211,7 +212,6 @@ private:
     void tabClicked(int tabIndex);
     int tabSpacing();
     int tabWidth(); // WistOpenboard fork: slimmer than the legacy 2*border()
-    void toggleCollapseExpand();
     void moveTabs();
     void resizeTabs();
 

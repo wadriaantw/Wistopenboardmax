@@ -21,6 +21,7 @@ HEADERS +=  \
     src/gui/UBMousePressFilter.h \
     src/gui/UBBlackoutWidget.h \
     src/gui/UBMainWindow.h \
+    src/gui/UBModernIcons.h \
     src/gui/UBToolWidget.h \
     src/gui/UBSpinningWheel.h \
     src/gui/UBZoomPalette.h \
@@ -70,6 +71,7 @@ SOURCES +=  \
     src/gui/UBMousePressFilter.cpp \
     src/gui/UBBlackoutWidget.cpp \
     src/gui/UBMainWindow.cpp \
+    src/gui/UBModernIcons.cpp \
     src/gui/UBToolWidget.cpp \
     src/gui/UBSpinningWheel.cpp \
     src/gui/UBZoomPalette.cpp \

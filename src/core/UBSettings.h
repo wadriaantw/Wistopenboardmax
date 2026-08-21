@@ -294,6 +294,8 @@ class UBSettings : public QObject
         UBSetting* boardSnapToShape; // WistOpenboard fork: when true, freehand pen/marker strokes that look like a line/circle/rect are auto-replaced with a clean primitive on release
         UBSetting* boardContinuousScroll; // WistOpenboard fork: when true, the board scrolls continuously through all pages instead of showing one page at a time
         UBSetting* appZenMode; // WistOpenboard fork
+        UBSetting* appDarkTheme; // WistOpenboard fork
+        UBSetting* appZenHintShown; // WistOpenboard fork
         UBSetting* boardSimplifyPenStrokesThresholdAngle;
         UBSetting* boardSimplifyPenStrokesThresholdWidthDifference;
         UBSetting* boardInterpolateMarkerStrokes;

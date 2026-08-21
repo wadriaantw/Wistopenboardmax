@@ -38,6 +38,7 @@
 
 #include "UBMainWindow.h"
 #include "core/UBApplication.h"
+#include "core/UBTheme.h"
 #include "core/UBApplicationController.h"
 #include "board/UBBoardController.h"
 #include "core/UBDisplayManager.h"
@@ -83,7 +84,7 @@ UBMainWindow::UBMainWindow(QWidget *parent, Qt::WindowFlags flags)
         QWidget* notchSpacer = new QWidget(this);
         notchSpacer->setFixedHeight(38);
         notchSpacer->setAttribute(Qt::WA_StyledBackground, true);
-        notchSpacer->setStyleSheet("background-color: #FFFFFF;"); // WistOpenboard fork: Fluent-light
+        notchSpacer->setStyleSheet(QString("background-color: %1;").arg(UBTheme::hex(UBTheme::surface()))); // WistOpenboard fork
         notchSpacer->setObjectName("macNotchSpacer");
         setMenuWidget(notchSpacer);
     }
@@ -131,13 +132,16 @@ UBMainWindow::UBMainWindow(QWidget *parent, Qt::WindowFlags flags)
     // global OpenBoard.css QTabBar rules (height:14px, margin-top:6px, border)
     // that were skewing the vertical alignment.
     // WistOpenboard fork: Fluent-light tab strip (was the #1d1d1f dark band).
-    mDocumentTabBar->setStyleSheet(
-        "QTabBar { background:#FFFFFF; }"
-        "QTabBar::tab { background:#F2F2F0; color:#6A6A66; border:none; height:22px;"
+    mDocumentTabBar->setStyleSheet(QString(
+        "QTabBar { background:%1; }"
+        "QTabBar::tab { background:%2; color:%3; border:none; height:22px;"
         " padding:3px 6px 3px 12px; margin:0 2px 0 0; min-width:90px; max-width:240px;"
         " border-top-left-radius:6px; border-top-right-radius:6px; }"
-        "QTabBar::tab:selected { background:#EAEAE8; color:#1A1A1A; }"
-        "QTabBar::tab:hover { background:#EDEDEB; }");
+        "QTabBar::tab:selected { background:%4; color:%5; }"
+        "QTabBar::tab:hover { background:%4; }")
+        .arg(UBTheme::hex(UBTheme::surface()), UBTheme::hex(UBTheme::surfaceMuted()),
+             UBTheme::hex(UBTheme::inkMuted()), UBTheme::hex(UBTheme::surfacePressed()),
+             UBTheme::hex(UBTheme::ink())));
 
     // "+" button: opens the Documents library so the user picks another doc.
     QToolButton* addTabButton = new QToolButton(this);
@@ -146,9 +150,10 @@ UBMainWindow::UBMainWindow(QWidget *parent, Qt::WindowFlags flags)
     addTabButton->setAutoRaise(true);
     addTabButton->setFocusPolicy(Qt::NoFocus);
     addTabButton->setFixedHeight(kTabBarHeight);
-    addTabButton->setStyleSheet(
-        "QToolButton { color:#6A6A66; font-size:16px; font-weight:bold; padding:0 10px; border:0; }"
-        "QToolButton:hover { color:#1A1A1A; }");
+    addTabButton->setStyleSheet(QString(
+        "QToolButton { color:%1; font-size:16px; font-weight:bold; padding:0 10px; border:0; }"
+        "QToolButton:hover { color:%2; }")
+        .arg(UBTheme::hex(UBTheme::inkMuted()), UBTheme::hex(UBTheme::ink())));
     connect(addTabButton, &QToolButton::clicked, this, [this]() {
         // "+" means: the next document I open should go into a NEW tab.
         if (UBApplication::boardController)
@@ -163,7 +168,8 @@ UBMainWindow::UBMainWindow(QWidget *parent, Qt::WindowFlags flags)
     mDocumentTabsToolBar->setFloatable(false);
     mDocumentTabsToolBar->setContextMenuPolicy(Qt::PreventContextMenu);
     mDocumentTabsToolBar->setIconSize(QSize(16, 16));   // keep the toolbar row short
-    mDocumentTabsToolBar->setStyleSheet("QToolBar { background:#FFFFFF; border:0; border-bottom:1px solid #E5E5E3; padding:0; margin:0; spacing:0; }");
+    mDocumentTabsToolBar->setStyleSheet(QString("QToolBar { background:%1; border:0; border-bottom:1px solid %2; padding:0; margin:0; spacing:0; }")
+        .arg(UBTheme::hex(UBTheme::surface()), UBTheme::hex(UBTheme::hairline())));
     // Tab bar and "+" go directly into the toolbar as separate items. With
     // scroll buttons disabled the bar's size hint equals the full width of all
     // its tabs, so the toolbar gives it that width (every tab shows, left-

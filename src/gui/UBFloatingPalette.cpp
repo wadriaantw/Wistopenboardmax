@@ -35,6 +35,7 @@
 #include "frameworks/UBPlatformUtils.h"
 
 #include "core/UBSettings.h"
+#include "core/UBTheme.h"
 
 #include "core/memcheck.h"
 
@@ -276,7 +277,7 @@ void UBFloatingPalette::paintEvent(QPaintEvent *)
 
     if(mbGrip)
     {
-        painter.setBrush(QBrush(QColor(229, 229, 227))); // WistOpenboard fork: minimalist hairline
+        painter.setBrush(QBrush(UBTheme::hairline())); // WistOpenboard fork: themed hairline
         QPainterPath borderPath;
         borderPath.addRoundedRect(0, 0, width(), height(), radius(), radius());
         borderPath.addRoundedRect(border(), border(), width() - 2 * border(), height() - 2 * border(), radius(), radius());

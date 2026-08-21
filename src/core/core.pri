@@ -3,6 +3,7 @@ HEADERS      += src/core/UB.h \
                 src/core/UBShortcutManager.h \
                 src/core/UBApplication.h \
                 src/core/UBSettings.h \
+                src/core/UBTheme.h \
                 src/core/UBSetting.h \
                 src/core/UBPersistenceManager.h \
                 src/core/UBSceneCache.h \
@@ -22,6 +23,7 @@ SOURCES      += src/core/main.cpp \
                 src/core/UBShortcutManager.cpp \
                 src/core/UBApplication.cpp \
                 src/core/UBSettings.cpp \
+                src/core/UBTheme.cpp \
                 src/core/UBSetting.cpp \
                 src/core/UBPersistenceManager.cpp \
                 src/core/UBSceneCache.cpp \

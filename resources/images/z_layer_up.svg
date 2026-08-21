@@ -1,17 +1,8 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Generator: Adobe Illustrator 15.1.0, SVG Export Plug-In  -->
-<!DOCTYPE svg [
-	<!ENTITY ns_flows "http://ns.adobe.com/Flows/1.0/">
-]>
-<svg version="1.2" baseProfile="tiny"
-	 xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:a="http://ns.adobe.com/AdobeSVGViewerExtensions/3.0/"
-	 x="0px" y="0px" width="27px" height="27px" viewBox="0 0 27 27" overflow="visible" xml:space="preserve">
-<defs>
-</defs>
-<circle fill="#939393" stroke="#CECCCC" stroke-width="2" stroke-miterlimit="10" cx="13.5" cy="13.5" r="12.5"/>
-<rect x="6" y="8" fill="#FFFFFF" width="11" height="2"/>
-<rect x="6" y="12" fill="#FFFFFF" width="11" height="2"/>
-<rect x="6" y="16" fill="#FFFFFF" width="11" height="2"/>
-<rect x="14" y="13" fill="#EFA725" width="6" height="8"/>
-<polygon fill="#EFA725" points="17,6 17,6 11,13 23,13 "/>
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44" viewBox="0 0 44 44">
+<circle cx="22" cy="22" r="20" fill="#FFFFFF" stroke="#D0D0CC" stroke-width="1.5"/>
+<g fill="none" stroke="#3A3A38" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+<path d="M 22 27 L 13 22.5 L 22 18 L 31 22.5 Z"/>
+<path d="M 22 15 L 22 8.5 M 22 8.5 L 18.6 12 M 22 8.5 L 25.4 12" transform="translate(0,4)"/>
+</g>
 </svg>

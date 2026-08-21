@@ -57,6 +57,7 @@
 #include "core/UBPersistenceManager.h"
 #include "core/UBSetting.h"
 #include "core/UBSettings.h"
+#include "core/UBTheme.h"
 #include "core/UBSettings.h"
 
 #include "document/UBDocument.h"
@@ -92,6 +93,30 @@
 #include "web/UBEmbedParser.h"
 
 #include "core/memcheck.h"
+
+#include <QPointer>
+
+namespace
+{
+    // Closes the one-time zen hint on any press.
+    class UBZenHintDismisser : public QObject
+    {
+    public:
+        explicit UBZenHintDismisser(QWidget* hint) : QObject(hint), mHint(hint) {}
+
+    protected:
+        bool eventFilter(QObject* watched, QEvent* event) override
+        {
+            if (event->type() == QEvent::MouseButtonPress && mHint)
+                mHint->close();
+
+            return QObject::eventFilter(watched, event);
+        }
+
+    private:
+        QPointer<QWidget> mHint;
+    };
+}
 
 UBBoardController::UBBoardController(UBMainWindow* mainWindow)
     : UBDocumentContainer(mainWindow->centralWidget())
@@ -885,8 +910,8 @@ void UBBoardController::setupToolbar()
         };
 
         QIcon scrollIcon;
-        scrollIcon.addPixmap(scrollPixmap(QColor(0x5A, 0x5A, 0x56)), QIcon::Normal, QIcon::Off);
-        scrollIcon.addPixmap(scrollPixmap(QColor(0x1A, 0x1A, 0x1A)), QIcon::Normal, QIcon::On);
+        scrollIcon.addPixmap(scrollPixmap(UBTheme::inkMuted()), QIcon::Normal, QIcon::Off);
+        scrollIcon.addPixmap(scrollPixmap(UBTheme::ink()), QIcon::Normal, QIcon::On);
 
         QAction* scrollAction = new QAction(scrollIcon, tr("Scroll"), this);
         scrollAction->setCheckable(true);
@@ -921,14 +946,14 @@ void UBBoardController::setupToolbar()
         clockLabel->setObjectName("taiwanClockLabel");
         clockLabel->setAlignment(Qt::AlignCenter);
         clockLabel->setContentsMargins(8, 0, 12, 0);
-        clockLabel->setStyleSheet(
+        clockLabel->setStyleSheet(QString(
             "QLabel#taiwanClockLabel {"
-            " color: #8A8A86;"
+            " color: %1;"
             " font-size: 16px;"
             " font-weight: bold;"
             " padding-left: 8px;"
             " padding-right: 12px;"
-            "}");
+            "}").arg(UBTheme::hex(UBTheme::inkMuted())));
         clockLabel->setToolTip(tr("Current time in Taiwan"));
 
         auto updateClock = [clockLabel]() {
@@ -959,17 +984,14 @@ void UBBoardController::setupToolbar()
         chromeButton->setToolTip(tr("Show or hide the toolbar"));
         chromeButton->setCursor(Qt::PointingHandCursor);
         chromeButton->setFixedSize(34, 34);
-        chromeButton->setStyleSheet(
-            "QToolButton#ubZenChromeButton { background: rgba(255,255,255,235);"
-            " border: 1px solid #E0E0DD; border-radius: 17px; }"
-            "QToolButton#ubZenChromeButton:hover { background: #F2F2F0; }");
+        chromeButton->setStyleSheet(UBBoardController::zenButtonCss());
 
         QPixmap linesPixmap(34, 34);
         linesPixmap.fill(Qt::transparent);
         {
             QPainter p(&linesPixmap);
             p.setRenderHint(QPainter::Antialiasing, true);
-            QPen pen(QColor(0x3A, 0x3A, 0x38));
+            QPen pen(UBTheme::ink());
             pen.setWidthF(2.0);
             pen.setCapStyle(Qt::RoundCap);
             p.setPen(pen);
@@ -991,6 +1013,8 @@ void UBBoardController::setupToolbar()
                 mZenPrevButton->setVisible(!visible);
             if (mZenNextButton)
                 mZenNextButton->setVisible(!visible);
+            if (mZenPageChip)
+                mZenPageChip->setVisible(!visible);
         };
 
         connect(chromeButton, &QToolButton::clicked, this, [this, setChromeVisible]() {
@@ -1007,17 +1031,14 @@ void UBBoardController::setupToolbar()
             arrowButton->setObjectName("ubZenChromeButton");
             arrowButton->setCursor(Qt::PointingHandCursor);
             arrowButton->setFixedSize(34, 34);
-            arrowButton->setStyleSheet(
-                "QToolButton#ubZenChromeButton { background: rgba(255,255,255,235);"
-                " border: 1px solid #E0E0DD; border-radius: 17px; }"
-                "QToolButton#ubZenChromeButton:hover { background: #F2F2F0; }");
+            arrowButton->setStyleSheet(UBBoardController::zenButtonCss());
 
             QPixmap arrowPixmap(34, 34);
             arrowPixmap.fill(Qt::transparent);
             {
                 QPainter p(&arrowPixmap);
                 p.setRenderHint(QPainter::Antialiasing, true);
-                QPen pen(QColor(0x3A, 0x3A, 0x38));
+                QPen pen(UBTheme::ink());
                 pen.setWidthF(2.0);
                 pen.setCapStyle(Qt::RoundCap);
                 pen.setJoinStyle(Qt::RoundJoin);
@@ -1026,7 +1047,20 @@ void UBBoardController::setupToolbar()
                 p.drawLine(QPointF(17 - dir * 2.5, 11), QPointF(17 + dir * 2.5, 17));
                 p.drawLine(QPointF(17 + dir * 2.5, 17), QPointF(17 - dir * 2.5, 23));
             }
-            arrowButton->setIcon(QIcon(arrowPixmap));
+            QIcon arrowIcon;
+            arrowIcon.addPixmap(arrowPixmap, QIcon::Normal);
+
+            // Faded variant so a dead end (first/last page) is visible.
+            QPixmap fadedPixmap(34, 34);
+            fadedPixmap.fill(Qt::transparent);
+            {
+                QPainter fade(&fadedPixmap);
+                fade.setOpacity(0.3);
+                fade.drawPixmap(0, 0, arrowPixmap);
+            }
+            arrowIcon.addPixmap(fadedPixmap, QIcon::Disabled);
+
+            arrowButton->setIcon(arrowIcon);
             arrowButton->setIconSize(QSize(34, 34));
             return arrowButton;
         };
@@ -1039,14 +1073,71 @@ void UBBoardController::setupToolbar()
         mZenNextButton->setToolTip(tr("Next page"));
         connect(mZenNextButton, &QToolButton::clicked, this, [this]() { nextScene(); });
 
+        // Page chip: "4 / 12" between the chrome button and the next arrow.
+        // Tapping it opens (or closes) the page-thumbnails drawer.
+        mZenPageChip = new QToolButton(mControlContainer);
+        mZenPageChip->setObjectName("ubZenChromeButton");
+        mZenPageChip->setCursor(Qt::PointingHandCursor);
+        mZenPageChip->setFixedSize(58, 26);
+        mZenPageChip->setToolTip(tr("Show the pages drawer"));
+        mZenPageChip->setStyleSheet(UBBoardController::zenButtonCss()
+            + QString("QToolButton#ubZenChromeButton { border-radius: 13px; color: %1;"
+                      " font-size: 12px; font-weight: bold; }")
+              .arg(UBTheme::hex(UBTheme::inkMuted())));
+        connect(mZenPageChip, &QToolButton::clicked, this, [this]() {
+            if (mPaletteManager && mPaletteManager->leftPalette())
+                mPaletteManager->leftPalette()->toggleCollapseExpand();
+        });
+
+        auto updatePageChip = [this](int index) {
+            if (mZenPageChip && selectedDocument())
+                mZenPageChip->setText(QString("%1 / %2")
+                    .arg(index + 1).arg(selectedDocument()->pageCount()));
+        };
+        connect(this, &UBBoardController::pageSelectionChanged, this, updatePageChip);
+
+        // Dim the arrows at the ends of the document.
+        connect(this, &UBBoardController::pageSelectionChanged, this, [this](int index) {
+            if (mZenPrevButton)
+                mZenPrevButton->setEnabled(index > 0);
+            if (mZenNextButton && selectedDocument())
+                mZenNextButton->setEnabled(index < selectedDocument()->pageCount() - 1);
+        });
+
         // Top-centre: both dock drawers own the side edges, so the corner
         // overlapped the page-thumbnails tab. The centre of the top edge is
         // the one spot no drawer reaches.
         mZenChromeButton = chromeButton;
         positionZenButtons();
         chromeButton->show();
+
+        // One-time onboarding hint: zen's conventions are invisible until told.
+        if (zenOn && !UBSettings::settings()->appZenHintShown->get().toBool())
+        {
+            UBSettings::settings()->appZenHintShown->set(true);
+
+            QLabel* hint = new QLabel(mControlContainer);
+            hint->setText(tr("Hold the pen for colours  \u00b7  Tap \u2261 for the toolbar"));
+            hint->setAlignment(Qt::AlignCenter);
+            hint->setStyleSheet(QString(
+                "QLabel { background: %1; color: %2; border: 1px solid %3;"
+                " border-radius: 14px; padding: 6px 16px; font-size: 13px; }")
+                .arg(UBTheme::hex(UBTheme::surface()), UBTheme::hex(UBTheme::ink()),
+                     UBTheme::hex(UBTheme::ring())));
+            hint->adjustSize();
+            hint->move((mControlContainer->width() - hint->width()) / 2, 8 + 34 + 10);
+            hint->raise();
+            hint->show();
+
+            // Fades away on its own; a tap dismisses it early.
+            hint->setAttribute(Qt::WA_DeleteOnClose);
+            QTimer::singleShot(12000, hint, [hint]() { hint->close(); });
+            hint->installEventFilter(new UBZenHintDismisser(hint));
+        }
+
         mZenPrevButton->setVisible(mZenChromeHidden);
         mZenNextButton->setVisible(mZenChromeHidden);
+        mZenPageChip->setVisible(mZenChromeHidden);
     }
 
     // WistOpenboard fork: the window title bar now provides minimise / maximise /
@@ -1874,6 +1965,21 @@ void UBBoardController::restoreViewPositionOnCurrentScene() const
     }
 }
 
+
+// WistOpenboard fork: shared style for the round zen buttons.
+QString UBBoardController::zenButtonCss()
+{
+    QColor background = UBTheme::surface();
+    background.setAlpha(235);
+
+    return QString(
+        "QToolButton#ubZenChromeButton { background: rgba(%1,%2,%3,%4);"
+        " border: 1px solid %5; border-radius: 17px; }"
+        "QToolButton#ubZenChromeButton:hover { background: %6; }")
+        .arg(background.red()).arg(background.green()).arg(background.blue()).arg(background.alpha())
+        .arg(UBTheme::hex(UBTheme::ring()), UBTheme::hex(UBTheme::surfaceMuted()));
+}
+
 // WistOpenboard fork: lay out the zen cluster -- previous page, chrome toggle,
 // next page -- centred on the top edge of the board.
 void UBBoardController::positionZenButtons()
@@ -1887,9 +1993,21 @@ void UBBoardController::positionZenButtons()
 
     mZenChromeButton->move(cx - mZenChromeButton->width() / 2, y);
 
+    if (mZenPageChip)
+    {
+        mZenPageChip->move(cx - mZenChromeButton->width() / 2 - gap - mZenPageChip->width(),
+                           y + (mZenChromeButton->height() - mZenPageChip->height()) / 2);
+        mZenPageChip->raise();
+    }
+
     if (mZenPrevButton)
     {
-        mZenPrevButton->move(cx - mZenChromeButton->width() / 2 - gap - mZenPrevButton->width(), y);
+        int x = cx - mZenChromeButton->width() / 2 - gap - mZenPrevButton->width();
+
+        if (mZenPageChip)
+            x -= gap + mZenPageChip->width();
+
+        mZenPrevButton->move(x, y);
         mZenPrevButton->raise();
     }
 

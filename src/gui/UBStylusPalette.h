@@ -55,8 +55,12 @@ class UBPenPropertiesPopup : public QWidget
     public:
         explicit UBPenPropertiesPopup(QWidget* parent = nullptr);
 
+        // WistOpenboard fork: one popup serves pen, marker and eraser -- same
+        // layout, different backing settings; the eraser hides the colour grid.
+        enum class PopupTool { Pen, Marker, Eraser };
+
         // Re-read colour and width from settings before showing.
-        void refresh();
+        void refresh(PopupTool tool);
 
     private slots:
         void pickCustomColour();
@@ -74,6 +78,7 @@ class UBPenPropertiesPopup : public QWidget
         QSlider* mWidthSlider = nullptr;
         QLabel* mWidthPreview = nullptr;
         QElapsedTimer mShownAt;
+        PopupTool mTool = PopupTool::Pen;
 };
 
 class UBStylusPalette : public UBActionPalette
@@ -90,14 +95,10 @@ class UBStylusPalette : public UBActionPalette
 
         void stylusToolDoubleClicked();
 
-        // WistOpenboard fork: hide the window title bar and the top toolbars so the
-        // whole screen is board. The floating palette stays, which is how the
-        // teacher gets back out again.
-        void toggleFullScreen(bool on);
 
         // WistOpenboard fork: press and hold the pen to pick colour and width
         // without going up to the top toolbar -- which in full screen is hidden.
-        void showPenProperties();
+        void showToolProperties(UBPenPropertiesPopup::PopupTool tool, QAction* anchorAction);
 
         // WistOpenboard fork: shrink the palette to pen + eraser so it takes up
         // almost no board, with an arrow to bring the rest back.
@@ -108,15 +109,13 @@ class UBStylusPalette : public UBActionPalette
         // strip at the top to drag with a finger. Overridden because the base
         // class re-applies its own margins whenever it relayouts.
         virtual void updateLayout() override;
+        virtual void paintEvent(QPaintEvent* event) override;
 
     private:
         int mLastSelectedId;
 
-        QAction* mFullScreenAction = nullptr;
         QAction* mCollapseAction = nullptr;
         UBPenPropertiesPopup* mPenPropertiesPopup = nullptr;
-        QList<QPointer<QToolBar> > mHiddenToolBars;   // restored on leaving full screen
-        bool mWasMaximized = false;
 
     signals:
         void stylusToolDoubleClicked(int tool);
