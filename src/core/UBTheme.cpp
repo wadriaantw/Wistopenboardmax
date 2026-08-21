@@ -9,13 +9,27 @@
 namespace UBTheme
 {
 
+namespace
+{
+    bool sDark = false;
+    bool sInitialized = false;
+}
+
+void initialize(bool dark)
+{
+    sDark = dark;
+    sInitialized = true;
+}
+
 bool isDark()
 {
-    // Decided once: widgets built at startup never re-read it, so flipping the
-    // setting mid-session would leave the UI half-and-half.
-    static const bool dark = UBSettings::settings()->appDarkTheme->get().toBool();
+    // Normally initialised by UBSettings before anyone asks. The fallback is
+    // for a call that somehow arrives first -- NEVER from inside the UBSettings
+    // constructor (see header).
+    if (!sInitialized)
+        initialize(UBSettings::settings()->appDarkTheme->get().toBool());
 
-    return dark;
+    return sDark;
 }
 
 QColor ink()             { return isDark() ? QColor(0xE8, 0xE8, 0xE6) : QColor(0x3A, 0x3A, 0x38); }

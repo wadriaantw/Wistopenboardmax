@@ -301,7 +301,9 @@ void UBSettings::init()
     appDarkTheme = new UBSetting(this, "App", "DarkTheme", false); // WistOpenboard fork: dark variant of the minimalist skin (restart to apply)
     appZenHintShown = new UBSetting(this, "App", "ZenHintShown", false); // WistOpenboard fork: one-time onboarding hint
 
-    // WistOpenboard fork: palettes pick up the themed surface colour.
+    // WistOpenboard fork: hand the theme its flag BEFORE asking for colours --
+    // a lazy settings read from in here deadlocks (see UBTheme.h).
+    UBTheme::initialize(appDarkTheme->get().toBool());
     paletteColor = UBTheme::paletteBackground();
     boardSimplifyPenStrokesThresholdAngle = new UBSetting(this, "Board", "SimplifyPenStrokesThresholdAngle", 2);
     boardSimplifyPenStrokesThresholdWidthDifference = new UBSetting(this, "Board", "SimplifyPenStrokesThresholdWidthDifference", 2.0);

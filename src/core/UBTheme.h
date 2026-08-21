@@ -19,6 +19,13 @@
 
 namespace UBTheme
 {
+    // Called by UBSettings once its members exist. isDark() lazily reading
+    // settings from inside the UBSettings CONSTRUCTOR deadlocked startup: the
+    // singleton pointer is only assigned after construction, so the lazy read
+    // re-entered UBSettings::settings(), constructed a second instance, and
+    // re-entered isDark() while its static guard was mid-initialisation.
+    void initialize(bool dark);
+
     bool isDark();
 
     QColor ink();              // primary text and glyphs
