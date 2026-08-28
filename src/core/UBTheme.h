@@ -39,6 +39,13 @@ namespace UBTheme
 
     QColor paletteBackground();    // floating palettes (surface + alpha)
 
+    // Icon accents: one coloured element per glyph keeps the set lively
+    // without returning to the glossy look. Same hues in dark mode.
+    QColor accentRed();
+    QColor accentBlue();
+    QColor accentGreen();
+    QColor accentAmber();
+
     QString hex(const QColor& color);   // "#RRGGBB" for stylesheet strings
 }
 

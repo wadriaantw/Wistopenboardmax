@@ -41,6 +41,11 @@ QColor surfaceMuted()    { return isDark() ? QColor(0x30, 0x30, 0x2E) : QColor(0
 QColor surfacePressed()  { return isDark() ? QColor(0x3A, 0x3A, 0x38) : QColor(0xE5, 0xE3, 0xDC); }
 QColor window()          { return isDark() ? QColor(0x1E, 0x1E, 0x1C) : QColor(0xF7, 0xF7, 0xF5); }
 
+QColor accentRed()   { return QColor(0xD8, 0x5A, 0x30); }
+QColor accentBlue()  { return QColor(0x37, 0x8A, 0xDD); }
+QColor accentGreen() { return QColor(0x63, 0x99, 0x22); }
+QColor accentAmber() { return QColor(0xEF, 0x9F, 0x27); }
+
 QColor paletteBackground()
 {
     QColor background = surface();

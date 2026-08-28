@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets"
+        xmlns:ub="http://uniboard.mnemis.com/widgets"
+        id="http://uniboard.mnemis.com/widgets/scatterfit"
+        version="1.0" width="680" height="560" ub:resizable="true">
+  <name>Scatter Plot</name>
+  <content src="index.html"/>
+</widget>

@@ -273,19 +273,23 @@ void WebPage::handleSelectClientCertificate(QWebEngineClientCertificateSelection
 
 // WistOpenboard fork: when JS calls window.open(url) or clicks an <a target="_blank">,
 // QtWebEngine asks for a new window via createWindow. The default returns nullptr
-// (silently dropping the request). Forwarding the URL to QDesktopServices::openUrl
-// makes those clicks open in the user's real default browser.
+// (silently dropping the request). We give it a transient page that catches the
+// navigation and opens the URL in OpenBoard's OWN Web mode — teachers stay
+// inside the board app (previously this went to the OS default browser, which
+// pulled them out of the lesson).
 QWebEnginePage* WebPage::createWindow(QWebEnginePage::WebWindowType type)
 {
     Q_UNUSED(type);
     // We can't know the URL here yet — Qt will follow up with a navigation
-    // request on the returned page if we provide one. We give it a transient
-    // page that catches the navigation and forwards externally.
+    // request on the returned page if we provide one.
     QWebEnginePage* transient = new QWebEnginePage(this->profile(), this);
     connect(transient, &QWebEnginePage::urlChanged, this,
             [transient](const QUrl& u) {
                 if (u.isValid() && !u.isEmpty()) {
-                    QDesktopServices::openUrl(u);
+                    if (UBApplication::webController)
+                        UBApplication::webController->loadUrl(u);
+                    else
+                        QDesktopServices::openUrl(u);
                 }
                 transient->deleteLater();
             });
@@ -307,6 +311,18 @@ bool WebPage::acceptNavigationRequest(const QUrl& url, NavigationType type, bool
         QString real = url.toString().mid(QString(kExternalScheme).length() + 1);
         QDesktopServices::openUrl(QUrl(real));
         return false; // don't actually navigate the QtWebEngine page
+    }
+    // `openboard-web:<url>` opens the URL in OpenBoard's own Web mode.
+    // Board widgets use it when a task needs a real browser page (e.g. the
+    // YouTube widget's search, since every public search API is dead) but the
+    // user should stay inside OpenBoard instead of being thrown to the OS
+    // browser.
+    if (url.scheme() == QLatin1String("openboard-web"))
+    {
+        QString real = url.toString().mid(QString("openboard-web").length() + 1);
+        if (UBApplication::webController)
+            UBApplication::webController->loadUrl(QUrl(real));
+        return false;
     }
     return true;
 }

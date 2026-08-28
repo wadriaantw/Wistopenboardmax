@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Transformations</title>
+  <style>
+    html,body { margin:0; padding:0; width:100%; height:100%; background:#fff; font-family: system-ui, sans-serif; }
+    #root { display:flex; flex-direction:column; height:100%; box-sizing:border-box; }
+    .panel { padding:5px 8px; background:#f4f4f4; border-bottom:1px solid #ddd; display:flex; flex-wrap:wrap; gap:6px; font-size:11px; align-items:center; }
+    .panel label { display:flex; align-items:center; gap:3px; }
+    .panel input[type="number"] { width:44px; padding:1px 3px; font-size:11px; }
+    .panel select { padding:1px; font-size:11px; }
+    button { padding:2px 8px; font-size:11px; cursor:pointer; }
+    #steps { padding:4px 8px; background:#fafafa; border-bottom:1px solid #ddd; display:flex; flex-wrap:wrap; gap:5px; font-size:11px; align-items:center; min-height:20px; }
+    .chip { display:flex; align-items:center; gap:4px; background:#e3ecf7; border:1px solid #b7cbe3; border-radius:10px; padding:1px 7px; }
+    .chip .x { color:#c44; cursor:pointer; font-weight:bold; }
+    .chip .arrow { color:#889; }
+    #canvasWrap { flex:1; position:relative; }
+    canvas { position:absolute; inset:0; width:100%; height:100%; touch-action:none; }
+    .insertBtn { background:#2a7; color:#fff; border:1px solid #2a7; font-weight:bold; padding:3px 12px; }
+    .insertBtn:hover { background:#3b8; }
+    #footer { padding:4px 8px; background:#f0f0f0; border-top:1px solid #ddd; display:flex; justify-content:space-between; gap:6px; align-items:center; font-size:11px; }
+    .legend { display:flex; gap:12px; }
+    .legend span { display:flex; align-items:center; gap:4px; }
+    .dot { display:inline-block; width:10px; height:10px; border-radius:2px; }
+    #addParams label { margin-left:2px; }
+  </style>
+</head>
+<body>
+<div id="root">
+  <div class="panel">
+    <label>Shape
+      <select id="shape">
+        <option value="triangle">Triangle</option>
+        <option value="rect">Rectangle</option>
+        <option value="flag" selected>Flag</option>
+      </select>
+    </label>
+    <span style="color:#999">|</span>
+    <label>Add step
+      <select id="stepType">
+        <option value="translate">Translate</option>
+        <option value="reflect">Reflect</option>
+        <option value="rotate">Rotate</option>
+        <option value="dilate">Dilate</option>
+      </select>
+    </label>
+    <span id="addParams"></span>
+    <button id="addStep" style="font-weight:bold">Add</button>
+    <span style="color:#999">|</span>
+    <label><input type="checkbox" id="showCoords" checked> Coordinates</label>
+    <label><input type="checkbox" id="showGhosts" checked> In-between steps</label>
+    <button id="clearSteps">Clear steps</button>
+  </div>
+  <div id="steps"><span style="color:#999" id="noSteps">No transformations yet — add one above. Drag the blue vertices to change the shape.</span></div>
+  <div id="canvasWrap"><canvas id="c"></canvas></div>
+  <div id="footer">
+    <div class="legend">
+      <span><span class="dot" style="background:rgba(55,110,200,0.75)"></span>Pre-image</span>
+      <span><span class="dot" style="background:rgba(204,30,30,0.75)"></span>Image</span>
+    </div>
+    <button class="insertBtn" id="insertBtn">Insert ↑ on board</button>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('c');
+let ctx = cv.getContext('2d');
+
+const SHAPES = {
+  triangle: [{x:1,y:1},{x:4,y:1},{x:2,y:4}],
+  rect:     [{x:1,y:1},{x:5,y:1},{x:5,y:3},{x:1,y:3}],
+  flag:     [{x:1,y:1},{x:2,y:1},{x:2,y:3},{x:4,y:3},{x:4,y:4},{x:1,y:4}]
+};
+let verts = SHAPES.flag.map(p => ({...p}));
+const steps = [];   // {type, ...params}
+
+const RANGE = 8;    // grid -8..8
+
+function view() {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  const s = Math.min(W, H) / (RANGE * 2 + 1.5);
+  const cx = W / 2, cy = H / 2;
+  return {
+    W, H, s,
+    X: x => cx + x * s,
+    Y: y => cy - y * s,
+    invX: px => (px - cx) / s,
+    invY: py => (cy - py) / s
+  };
+}
+
+function applyStep(p, st) {
+  if (st.type === 'translate') return { x: p.x + st.dx, y: p.y + st.dy };
+  if (st.type === 'reflect') {
+    if (st.axis === 'x')  return { x: p.x,  y: -p.y };
+    if (st.axis === 'y')  return { x: -p.x, y: p.y };
+    if (st.axis === 'yx') return { x: p.y,  y: p.x };
+    if (st.axis === 'ynx')return { x: -p.y, y: -p.x };
+  }
+  if (st.type === 'rotate') {
+    const a = st.angle * Math.PI / 180;
+    const c = Math.round(Math.cos(a)*1e12)/1e12, s = Math.round(Math.sin(a)*1e12)/1e12;
+    return { x: p.x*c - p.y*s, y: p.x*s + p.y*c };
+  }
+  if (st.type === 'dilate') return { x: p.x * st.k, y: p.y * st.k };
+  return p;
+}
+
+function stages() {
+  // returns [preimage, after step1, after step2, ...]
+  const out = [verts.map(p => ({...p}))];
+  for (const st of steps) {
+    out.push(out[out.length-1].map(p => applyStep(p, st)));
+  }
+  return out;
+}
+
+function fmtC(v) {
+  const r = Math.round(v * 100) / 100;
+  return String(r);
+}
+
+function drawPoly(v, pts, fill, stroke, labelSuffix, labelColor) {
+  ctx.beginPath();
+  pts.forEach((p, i) => {
+    const px = v.X(p.x), py = v.Y(p.y);
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  });
+  ctx.closePath();
+  ctx.fillStyle = fill; ctx.fill();
+  ctx.strokeStyle = stroke; ctx.lineWidth = 2; ctx.stroke();
+
+  if (labelSuffix === null) return;
+  const showC = $('showCoords').checked;
+  ctx.font = 'bold 12px sans-serif';
+  const cx0 = pts.reduce((a,p)=>a+p.x,0)/pts.length;
+  const cy0 = pts.reduce((a,p)=>a+p.y,0)/pts.length;
+  pts.forEach((p, i) => {
+    const name = String.fromCharCode(65 + i) + labelSuffix;
+    // push labels outward from the centroid
+    const dx = p.x - cx0, dy = p.y - cy0;
+    const len = Math.hypot(dx, dy) || 1;
+    const lx = v.X(p.x) + dx/len * 14;
+    const ly = v.Y(p.y) - dy/len * 14;
+    ctx.fillStyle = labelColor;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(name, lx, ly - (showC ? 6 : 0));
+    if (showC) {
+      ctx.font = '10px sans-serif';
+      ctx.fillText('(' + fmtC(p.x) + ', ' + fmtC(p.y) + ')', lx, ly + 7);
+      ctx.font = 'bold 12px sans-serif';
+    }
+  });
+}
+
+function draw() {
+  const v = view();
+  ctx.clearRect(0, 0, v.W, v.H);
+
+  // grid
+  ctx.strokeStyle = '#e4e4e4'; ctx.lineWidth = 1;
+  for (let x = -RANGE; x <= RANGE; x++) {
+    ctx.beginPath(); ctx.moveTo(v.X(x), v.Y(RANGE)); ctx.lineTo(v.X(x), v.Y(-RANGE)); ctx.stroke();
+  }
+  for (let y = -RANGE; y <= RANGE; y++) {
+    ctx.beginPath(); ctx.moveTo(v.X(-RANGE), v.Y(y)); ctx.lineTo(v.X(RANGE), v.Y(y)); ctx.stroke();
+  }
+  // axes
+  ctx.strokeStyle = '#666'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(v.X(-RANGE), v.Y(0)); ctx.lineTo(v.X(RANGE), v.Y(0)); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(v.X(0), v.Y(RANGE)); ctx.lineTo(v.X(0), v.Y(-RANGE)); ctx.stroke();
+  // axis numbers every 2
+  ctx.fillStyle = '#999'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center';
+  for (let x = -RANGE; x <= RANGE; x += 2) {
+    if (x === 0) continue;
+    ctx.fillText(String(x), v.X(x), v.Y(0) + 11);
+  }
+  for (let y = -RANGE; y <= RANGE; y += 2) {
+    if (y === 0) continue;
+    ctx.fillText(String(y), v.X(0) - 9, v.Y(y) + 3);
+  }
+
+  const st = stages();
+  const last = st.length - 1;
+
+  // ghosts for intermediate stages
+  if ($('showGhosts').checked) {
+    for (let i = 1; i < last; i++) {
+      drawPoly(v, st[i], 'rgba(150,150,150,0.15)', 'rgba(130,130,130,0.6)', null, '#888');
+    }
+  }
+  // final image (if any steps)
+  if (last >= 1) {
+    const primes = '′'.repeat(steps.length);
+    drawPoly(v, st[last], 'rgba(204,30,30,0.22)', 'rgba(190,25,25,0.95)', primes, '#a01818');
+  }
+  // pre-image on top
+  drawPoly(v, st[0], 'rgba(55,110,200,0.22)', 'rgba(45,95,180,0.95)', '', '#1d4e94');
+
+  // vertex handles on the pre-image
+  st[0].forEach(p => {
+    ctx.fillStyle = '#2d5fb4';
+    ctx.beginPath(); ctx.arc(v.X(p.x), v.Y(p.y), 5, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.beginPath(); ctx.arc(v.X(p.x), v.Y(p.y), 2, 0, Math.PI*2); ctx.fill();
+  });
+}
+
+// ------ step chips UI ------
+function stepText(st) {
+  if (st.type === 'translate') return 'Translate (' + st.dx + ', ' + st.dy + ')';
+  if (st.type === 'reflect') {
+    const names = {x:'x-axis', y:'y-axis', yx:'y = x', ynx:'y = −x'};
+    return 'Reflect over ' + names[st.axis];
+  }
+  if (st.type === 'rotate') return 'Rotate ' + st.angle + '° CCW';
+  if (st.type === 'dilate') return 'Dilate ×' + st.k;
+  return '?';
+}
+
+function refreshSteps() {
+  const box = $('steps');
+  box.innerHTML = '';
+  if (!steps.length) {
+    const s = document.createElement('span');
+    s.style.color = '#999';
+    s.textContent = 'No transformations yet — add one above. Drag the blue vertices to change the shape.';
+    box.appendChild(s);
+    return;
+  }
+  steps.forEach((st, i) => {
+    if (i > 0) {
+      const a = document.createElement('span'); a.className = 'arrow'; a.textContent = '→';
+      box.appendChild(a);
+    }
+    const chip = document.createElement('span'); chip.className = 'chip';
+    const t = document.createElement('span'); t.textContent = (i+1) + '. ' + stepText(st);
+    const x = document.createElement('span'); x.className = 'x'; x.textContent = '×';
+    x.addEventListener('click', () => { steps.splice(i, 1); refreshSteps(); draw(); });
+    chip.appendChild(t); chip.appendChild(x);
+    box.appendChild(chip);
+  });
+}
+
+// contextual params for the "add step" row
+function renderParams() {
+  const type = $('stepType').value;
+  const box = $('addParams');
+  if (type === 'translate') {
+    box.innerHTML = '<label>dx <input id="p_dx" type="number" value="3" step="1"></label>' +
+                    '<label>dy <input id="p_dy" type="number" value="-2" step="1"></label>';
+  } else if (type === 'reflect') {
+    box.innerHTML = '<label>over <select id="p_axis">' +
+      '<option value="x">x-axis</option><option value="y">y-axis</option>' +
+      '<option value="yx">y = x</option><option value="ynx">y = −x</option></select></label>';
+  } else if (type === 'rotate') {
+    box.innerHTML = '<label>by <select id="p_angle">' +
+      '<option value="90">90° CCW</option><option value="180">180°</option>' +
+      '<option value="270">270° CCW</option></select> about origin</label>';
+  } else if (type === 'dilate') {
+    box.innerHTML = '<label>factor <select id="p_k">' +
+      '<option value="0.5">½</option><option value="2" selected>2</option>' +
+      '<option value="3">3</option><option value="0.25">¼</option><option value="1.5">1.5</option>' +
+      '</select> centre origin</label>';
+  }
+}
+$('stepType').addEventListener('change', renderParams);
+renderParams();
+
+$('addStep').addEventListener('click', () => {
+  const type = $('stepType').value;
+  let st = null;
+  if (type === 'translate') st = { type, dx: +$('p_dx').value, dy: +$('p_dy').value };
+  if (type === 'reflect')   st = { type, axis: $('p_axis').value };
+  if (type === 'rotate')    st = { type, angle: +$('p_angle').value };
+  if (type === 'dilate')    st = { type, k: +$('p_k').value };
+  if (st) { steps.push(st); refreshSteps(); draw(); }
+});
+$('clearSteps').addEventListener('click', () => { steps.length = 0; refreshSteps(); draw(); });
+$('shape').addEventListener('change', () => {
+  verts = SHAPES[$('shape').value].map(p => ({...p}));
+  draw();
+});
+['showCoords','showGhosts'].forEach(id => $(id).addEventListener('change', draw));
+
+// ------ vertex dragging (mouse + touch), snap to integer grid ------
+let dragIdx = -1;
+function pos(e) {
+  const r = cv.getBoundingClientRect();
+  const t = e.touches ? e.touches[0] : e;
+  return { px: t.clientX - r.left, py: t.clientY - r.top };
+}
+function downAt(e) {
+  const { px, py } = pos(e);
+  const v = view();
+  dragIdx = -1;
+  verts.forEach((p, i) => {
+    if (Math.hypot(v.X(p.x) - px, v.Y(p.y) - py) < 14) dragIdx = i;
+  });
+  if (dragIdx >= 0 && e.cancelable) e.preventDefault();
+}
+function moveAt(e) {
+  if (dragIdx < 0) return;
+  const { px, py } = pos(e);
+  const v = view();
+  let x = Math.round(v.invX(px));
+  let y = Math.round(v.invY(py));
+  x = Math.max(-RANGE, Math.min(RANGE, x));
+  y = Math.max(-RANGE, Math.min(RANGE, y));
+  verts[dragIdx] = { x, y };
+  draw();
+  if (e.cancelable) e.preventDefault();
+}
+cv.addEventListener('mousedown', downAt);
+window.addEventListener('mousemove', moveAt);
+window.addEventListener('mouseup', () => dragIdx = -1);
+cv.addEventListener('touchstart', downAt, {passive:false});
+cv.addEventListener('touchmove', moveAt, {passive:false});
+cv.addEventListener('touchend', () => dragIdx = -1);
+
+function insertOnBoard() {
+  const dpr = window.devicePixelRatio || 1;
+  const scale = 2;
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, Math.floor(cv.width / dpr * scale));
+  out.height = Math.max(1, Math.floor(cv.height / dpr * scale));
+  const octx = out.getContext('2d');
+  octx.fillStyle = '#fff'; octx.fillRect(0, 0, out.width, out.height);
+  octx.drawImage(cv, 0, 0, cv.width, cv.height, 0, 0, out.width, out.height);
+  const dataUrl = out.toDataURL('image/png');
+  if (window.sankore && window.sankore.addObject) {
+    window.sankore.addObject(dataUrl, 0, 0, 0, 0, false);
+  }
+}
+$('insertBtn').addEventListener('click', insertOnBoard);
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.max(1, Math.floor(r.width * dpr));
+  cv.height = Math.max(1, Math.floor(r.height * dpr));
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+new ResizeObserver(resize).observe($('canvasWrap'));
+window.addEventListener('resize', resize);
+window.addEventListener('load', resize);
+refreshSteps();
+resize();
+setTimeout(resize, 100);
+setTimeout(resize, 500);
+</script>
+</body>
+</html>

@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Scatter Plot</title>
+  <style>
+    html,body { margin:0; padding:0; width:100%; height:100%; background:#fff; font-family: system-ui, sans-serif; }
+    #root { display:flex; flex-direction:column; height:100%; box-sizing:border-box; }
+    .tabs { display:flex; background:#e8e8e8; border-bottom:1px solid #ccc; }
+    .tab { padding:5px 12px; cursor:pointer; font-size:12px; border-right:1px solid #ccc; }
+    .tab.active { background:#fff; font-weight:bold; }
+    .panel { padding:5px 8px; background:#f4f4f4; border-bottom:1px solid #ddd; display:none; flex-wrap:wrap; gap:8px; font-size:11px; align-items:center; }
+    .panel.active { display:flex; }
+    .panel label { display:flex; align-items:center; gap:3px; }
+    .panel input[type="number"] { width:44px; padding:1px 3px; font-size:11px; }
+    button { padding:2px 8px; font-size:11px; cursor:pointer; }
+    textarea { width:220px; height:46px; font-size:11px; font-family:monospace; }
+    #readout { padding:4px 8px; background:#eef4fb; border-bottom:1px solid #cde; font-size:12px; display:flex; gap:18px; flex-wrap:wrap; min-height:16px; }
+    #readout b { font-family:monospace; }
+    #canvasWrap { flex:1; position:relative; }
+    canvas { position:absolute; inset:0; width:100%; height:100%; touch-action:none; }
+    .insertBtn { background:#2a7; color:#fff; border:1px solid #2a7; font-weight:bold; padding:3px 12px; }
+    .insertBtn:hover { background:#3b8; }
+    #footer { padding:4px 8px; background:#f0f0f0; border-top:1px solid #ddd; display:flex; justify-content:flex-end; gap:6px; }
+  </style>
+</head>
+<body>
+<div id="root">
+  <div class="tabs">
+    <div class="tab active" data-tab="plot">Plot</div>
+    <div class="tab" data-tab="data">Data table</div>
+    <div class="tab" data-tab="window">Window</div>
+  </div>
+  <div class="panel active" id="panel-plot">
+    <span style="color:#775">Tap the grid to add points; drag to move; double-tap a point to remove it.</span>
+    <label><input type="checkbox" id="showMyLine"> My line (drag the ◆ handles)</label>
+    <label><input type="checkbox" id="showFit"> Best fit (least squares)</label>
+    <label><input type="checkbox" id="showResiduals"> Residuals</label>
+    <button id="undoPoint">Remove last</button>
+    <button id="clearPoints">Clear</button>
+  </div>
+  <div class="panel" id="panel-data">
+    <textarea id="dataText" placeholder="one point per line:&#10;2 5&#10;3, 7.5&#10;4 9"></textarea>
+    <button id="applyData">Apply</button>
+    <span style="color:#775">Replaces the current points.</span>
+  </div>
+  <div class="panel" id="panel-window">
+    <label>X: <input id="xmin" type="number" value="0">..<input id="xmax" type="number" value="10"></label>
+    <label>Y: <input id="ymin" type="number" value="0">..<input id="ymax" type="number" value="10"></label>
+    <button id="fitWindow">Fit to data</button>
+  </div>
+  <div id="readout"></div>
+  <div id="canvasWrap"><canvas id="c"></canvas></div>
+  <div id="footer">
+    <button class="insertBtn" id="insertBtn">Insert ↑ on board</button>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('c');
+let ctx = cv.getContext('2d');
+const points = [{x:1,y:2},{x:2,y:2.5},{x:3,y:4},{x:4,y:4.5},{x:5,y:6},{x:6,y:5.5},{x:7,y:7.5},{x:8,y:8}];
+// "My line" stored as two draggable endpoints in data coords
+let myLine = null;   // {p1:{x,y}, p2:{x,y}}
+
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    $('panel-' + t.dataset.tab).classList.add('active');
+  });
+});
+
+function view() {
+  const xmin = +$('xmin').value, xmax = +$('xmax').value;
+  const ymin = +$('ymin').value, ymax = +$('ymax').value;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  const padL = 38, padR = 14, padT = 12, padB = 26;
+  return {
+    xmin, xmax, ymin, ymax, W, H, padL, padR, padT, padB,
+    X: x => padL + (x - xmin) / (xmax - xmin) * (W - padL - padR),
+    Y: y => padT + (ymax - y) / (ymax - ymin) * (H - padT - padB),
+    invX: px => xmin + (px - padL) / (W - padL - padR) * (xmax - xmin),
+    invY: py => ymax - (py - padT) / (H - padT - padB) * (ymax - ymin)
+  };
+}
+
+function niceStep(span) {
+  const raw = span / 10;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  for (const m of [1, 2, 5, 10]) if (raw <= m * mag) return m * mag;
+  return 10 * mag;
+}
+
+function leastSquares() {
+  const n = points.length;
+  if (n < 2) return null;
+  let sx=0, sy=0, sxx=0, sxy=0, syy=0;
+  for (const p of points) { sx+=p.x; sy+=p.y; sxx+=p.x*p.x; sxy+=p.x*p.y; syy+=p.y*p.y; }
+  const denom = n*sxx - sx*sx;
+  if (Math.abs(denom) < 1e-12) return null;
+  const m = (n*sxy - sx*sy) / denom;
+  const b = (sy - m*sx) / n;
+  const rDen = Math.sqrt((n*sxx - sx*sx) * (n*syy - sy*sy));
+  const r = rDen > 1e-12 ? (n*sxy - sx*sy) / rDen : NaN;
+  return { m, b, r };
+}
+
+function ensureMyLine() {
+  if (myLine) return;
+  const v = view();
+  const x1 = v.xmin + (v.xmax - v.xmin) * 0.2;
+  const x2 = v.xmin + (v.xmax - v.xmin) * 0.8;
+  const ymid = (v.ymin + v.ymax) / 2;
+  myLine = { p1: {x: x1, y: ymid}, p2: {x: x2, y: ymid} };
+}
+
+function lineEq(p1, p2) {
+  if (Math.abs(p2.x - p1.x) < 1e-9) return null;
+  const m = (p2.y - p1.y) / (p2.x - p1.x);
+  return { m, b: p1.y - m * p1.x };
+}
+
+function fmt(x, d) { return (+x.toFixed(d === undefined ? 3 : d)).toString(); }
+
+function drawFullLine(v, m, b, color, dash) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(v.padL, v.padT, v.W - v.padL - v.padR, v.H - v.padT - v.padB);
+  ctx.clip();
+  ctx.strokeStyle = color; ctx.lineWidth = 2;
+  ctx.setLineDash(dash || []);
+  ctx.beginPath();
+  ctx.moveTo(v.X(v.xmin), v.Y(m * v.xmin + b));
+  ctx.lineTo(v.X(v.xmax), v.Y(m * v.xmax + b));
+  ctx.stroke();
+  ctx.restore();
+}
+
+function draw() {
+  const v = view();
+  ctx.clearRect(0, 0, v.W, v.H);
+  if (!(v.xmax > v.xmin) || !(v.ymax > v.ymin)) return;
+
+  // grid + labels
+  const xs = niceStep(v.xmax - v.xmin), ys = niceStep(v.ymax - v.ymin);
+  ctx.font = '10px sans-serif';
+  ctx.strokeStyle = '#e6e6e6'; ctx.lineWidth = 1;
+  ctx.fillStyle = '#888';
+  ctx.textAlign = 'center';
+  for (let x = Math.ceil(v.xmin/xs)*xs; x <= v.xmax + 1e-9; x += xs) {
+    ctx.beginPath(); ctx.moveTo(v.X(x), v.padT); ctx.lineTo(v.X(x), v.H - v.padB); ctx.stroke();
+    ctx.fillText(fmt(x, 2), v.X(x), v.H - v.padB + 13);
+  }
+  ctx.textAlign = 'right';
+  for (let y = Math.ceil(v.ymin/ys)*ys; y <= v.ymax + 1e-9; y += ys) {
+    ctx.beginPath(); ctx.moveTo(v.padL, v.Y(y)); ctx.lineTo(v.W - v.padR, v.Y(y)); ctx.stroke();
+    ctx.fillText(fmt(y, 2), v.padL - 4, v.Y(y) + 3);
+  }
+  // border axes
+  ctx.strokeStyle = '#555'; ctx.lineWidth = 1.2;
+  ctx.strokeRect(v.padL, v.padT, v.W - v.padL - v.padR, v.H - v.padT - v.padB);
+
+  const readout = [];
+  const fit = $('showFit').checked ? leastSquares() : null;
+  let myEq = null;
+  if ($('showMyLine').checked) {
+    ensureMyLine();
+    myEq = lineEq(myLine.p1, myLine.p2);
+  }
+
+  // residuals: against best fit if shown, else my line
+  const resLine = $('showResiduals').checked ? (fit || myEq) : null;
+  if (resLine) {
+    ctx.strokeStyle = 'rgba(200,120,0,0.8)'; ctx.lineWidth = 1.4;
+    ctx.setLineDash([3,3]);
+    let sse = 0;
+    for (const p of points) {
+      const yhat = resLine.m * p.x + resLine.b;
+      sse += (p.y - yhat) * (p.y - yhat);
+      ctx.beginPath();
+      ctx.moveTo(v.X(p.x), v.Y(p.y));
+      ctx.lineTo(v.X(p.x), v.Y(yhat));
+      ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    readout.push('Sum of squared residuals = <b>' + fmt(sse) + '</b>');
+  }
+
+  if (myEq) {
+    drawFullLine(v, myEq.m, myEq.b, '#2d5fb4');
+    readout.push('My line: <b>y = ' + fmt(myEq.m) + 'x ' + (myEq.b >= 0 ? '+ ' : '− ') + fmt(Math.abs(myEq.b)) + '</b>');
+  }
+  if (fit) {
+    drawFullLine(v, fit.m, fit.b, '#00892a', [8,4]);
+    readout.push('Best fit: <b>y = ' + fmt(fit.m) + 'x ' + (fit.b >= 0 ? '+ ' : '− ') + fmt(Math.abs(fit.b)) + '</b>  r = <b>' + fmt(fit.r) + '</b>');
+  }
+
+  // points
+  for (const p of points) {
+    ctx.fillStyle = '#cc2222';
+    ctx.beginPath(); ctx.arc(v.X(p.x), v.Y(p.y), 5, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(v.X(p.x), v.Y(p.y), 5, 0, Math.PI*2); ctx.stroke();
+  }
+
+  // my-line handles
+  if (myEq !== null || ($('showMyLine').checked && myLine)) {
+    for (const h of [myLine.p1, myLine.p2]) {
+      ctx.save();
+      ctx.translate(v.X(h.x), v.Y(h.y));
+      ctx.rotate(Math.PI/4);
+      ctx.fillStyle = '#2d5fb4';
+      ctx.fillRect(-5, -5, 10, 10);
+      ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
+      ctx.strokeRect(-5, -5, 10, 10);
+      ctx.restore();
+    }
+  }
+
+  $('readout').innerHTML = readout.join('<span style="width:12px;display:inline-block"></span>') ||
+    '<span style="color:#889">' + points.length + ' point' + (points.length===1?'':'s') + '</span>';
+}
+
+// ------ interactions ------
+let drag = null;   // {kind:'point'|'handle', idx or which}
+let lastTap = 0, lastTapPos = null;
+
+function pos(e) {
+  const r = cv.getBoundingClientRect();
+  const t = e.touches ? e.touches[0] : e;
+  return { px: t.clientX - r.left, py: t.clientY - r.top };
+}
+function hit(px, py) {
+  const v = view();
+  if ($('showMyLine').checked && myLine) {
+    for (const which of ['p1','p2']) {
+      const h = myLine[which];
+      if (Math.hypot(v.X(h.x)-px, v.Y(h.y)-py) < 13) return { kind:'handle', which };
+    }
+  }
+  for (let i = points.length - 1; i >= 0; i--) {
+    if (Math.hypot(v.X(points[i].x)-px, v.Y(points[i].y)-py) < 12) return { kind:'point', idx:i };
+  }
+  return null;
+}
+function removeAt(px, py) {
+  const h = hit(px, py);
+  if (h && h.kind === 'point') { points.splice(h.idx, 1); draw(); return true; }
+  return false;
+}
+function downAt(e) {
+  const { px, py } = pos(e);
+  const v = view();
+  // double-tap detection for touch
+  const now = Date.now();
+  if (e.touches && lastTapPos && now - lastTap < 350 &&
+      Math.hypot(px - lastTapPos.px, py - lastTapPos.py) < 16) {
+    lastTap = 0;
+    if (removeAt(px, py)) { if (e.cancelable) e.preventDefault(); return; }
+  }
+  lastTap = now; lastTapPos = { px, py };
+
+  drag = hit(px, py);
+  if (!drag) {
+    // add point if inside plot area
+    if (px > v.padL && px < v.W - v.padR && py > v.padT && py < v.H - v.padB) {
+      const x = Math.round(v.invX(px) * 10) / 10;
+      const y = Math.round(v.invY(py) * 10) / 10;
+      points.push({ x, y });
+      drag = { kind:'point', idx: points.length - 1 };
+      draw();
+    }
+  }
+  if (drag && e.cancelable) e.preventDefault();
+}
+function moveAt(e) {
+  if (!drag) return;
+  const { px, py } = pos(e);
+  const v = view();
+  const x = Math.round(v.invX(px) * 10) / 10;
+  const y = Math.round(v.invY(py) * 10) / 10;
+  if (drag.kind === 'point') points[drag.idx] = { x, y };
+  else myLine[drag.which] = { x, y };
+  draw();
+  if (e.cancelable) e.preventDefault();
+}
+cv.addEventListener('mousedown', downAt);
+window.addEventListener('mousemove', moveAt);
+window.addEventListener('mouseup', () => drag = null);
+cv.addEventListener('touchstart', downAt, {passive:false});
+cv.addEventListener('touchmove', moveAt, {passive:false});
+cv.addEventListener('touchend', () => drag = null);
+cv.addEventListener('dblclick', (e) => { const { px, py } = pos(e); removeAt(px, py); });
+
+$('undoPoint').addEventListener('click', () => { points.pop(); draw(); });
+$('clearPoints').addEventListener('click', () => { points.length = 0; draw(); });
+['showMyLine','showFit','showResiduals'].forEach(id => $(id).addEventListener('change', draw));
+['xmin','xmax','ymin','ymax'].forEach(id => {
+  $(id).addEventListener('change', draw);
+  $(id).addEventListener('input', draw);
+});
+$('fitWindow').addEventListener('click', () => {
+  if (!points.length) return;
+  let xmin = Infinity, xmax = -Infinity, ymin = Infinity, ymax = -Infinity;
+  for (const p of points) {
+    xmin = Math.min(xmin, p.x); xmax = Math.max(xmax, p.x);
+    ymin = Math.min(ymin, p.y); ymax = Math.max(ymax, p.y);
+  }
+  const xp = Math.max(1, (xmax - xmin) * 0.15), yp = Math.max(1, (ymax - ymin) * 0.15);
+  $('xmin').value = Math.floor(xmin - xp); $('xmax').value = Math.ceil(xmax + xp);
+  $('ymin').value = Math.floor(ymin - yp); $('ymax').value = Math.ceil(ymax + yp);
+  myLine = null;
+  draw();
+});
+$('applyData').addEventListener('click', () => {
+  const lines = $('dataText').value.split('\n');
+  const pts = [];
+  for (const line of lines) {
+    const m = line.trim().split(/[\s,;]+/).map(Number);
+    if (m.length >= 2 && isFinite(m[0]) && isFinite(m[1])) pts.push({x: m[0], y: m[1]});
+  }
+  if (pts.length) {
+    points.length = 0;
+    points.push(...pts);
+    $('fitWindow').click();
+  }
+});
+
+function insertOnBoard() {
+  const dpr = window.devicePixelRatio || 1;
+  const scale = 2;
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, Math.floor(cv.width / dpr * scale));
+  out.height = Math.max(1, Math.floor(cv.height / dpr * scale));
+  const octx = out.getContext('2d');
+  octx.fillStyle = '#fff'; octx.fillRect(0, 0, out.width, out.height);
+  octx.drawImage(cv, 0, 0, cv.width, cv.height, 0, 0, out.width, out.height);
+  const dataUrl = out.toDataURL('image/png');
+  if (window.sankore && window.sankore.addObject) {
+    window.sankore.addObject(dataUrl, 0, 0, 0, 0, false);
+  }
+}
+$('insertBtn').addEventListener('click', insertOnBoard);
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.max(1, Math.floor(r.width * dpr));
+  cv.height = Math.max(1, Math.floor(r.height * dpr));
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+new ResizeObserver(resize).observe($('canvasWrap'));
+window.addEventListener('resize', resize);
+window.addEventListener('load', resize);
+resize();
+setTimeout(resize, 100);
+setTimeout(resize, 500);
+</script>
+</body>
+</html>

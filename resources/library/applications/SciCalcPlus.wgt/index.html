@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Scientific Calculator</title>
+<style>
+  html,body { margin:0; padding:0; width:100%; height:100%; overflow:hidden;
+              font-family: "Segoe UI", system-ui, sans-serif; background:#1b1b1d; }
+  #shell { display:flex; flex-direction:column; height:100%; box-sizing:border-box;
+           padding:2.5% 3%; background:#232326; }
+
+  /* ---------- display ---------- */
+  #lcd { background:#d7e0d2; border:2px solid #0d0d0d; border-radius:4px;
+         padding:2% 3%; display:flex; flex-direction:column; justify-content:space-between;
+         min-height:20%; flex:0 0 auto; }
+  #flags { display:flex; gap:10px; font-size:11px; color:#2b3327; letter-spacing:.5px;
+           height:14px; align-items:center; }
+  .flag { opacity:.25; font-weight:700; }
+  .flag.on { opacity:1; }
+  #expr { font-size:17px; color:#12180f; min-height:26px; overflow-x:auto; overflow-y:hidden;
+          white-space:nowrap; direction:ltr; text-align:left; padding:2px 0; }
+  #out  { font-size:26px; color:#0d1209; text-align:right; min-height:32px; font-weight:600;
+          overflow-x:auto; white-space:nowrap; }
+
+  /* natural-display pieces */
+  .frac { display:inline-flex; flex-direction:column; vertical-align:middle;
+          text-align:center; margin:0 2px; }
+  .frac .num { border-bottom:1.5px solid currentColor; padding:0 3px; line-height:1.15; }
+  .frac .den { padding:0 3px; line-height:1.15; }
+  .sqrt { display:inline-flex; align-items:stretch; margin:0 1px; }
+  .sqrt .sign { font-size:1.05em; }
+  .sqrt .body { border-top:1.5px solid currentColor; padding:0 3px; margin-top:2px; }
+  sup.pow { font-size:.65em; vertical-align:super; }
+  .caret { display:inline-block; width:1px; margin:0 -1px; border-left:1.5px solid #12180f;
+           animation:blink 1s step-end infinite; height:1.05em; vertical-align:-.15em; }
+  @keyframes blink { 50% { opacity:0; } }
+
+  /* ---------- keypad ---------- */
+  #pad { flex:1 1 auto; display:grid; gap:1.4%; margin-top:2.5%;
+         grid-template-columns:repeat(5, 1fr); }
+  button { border:0; border-radius:6px; background:#3a3a3f; color:#f2f2f2;
+           font-size:15px; font-weight:600; cursor:pointer; position:relative;
+           display:flex; align-items:center; justify-content:center;
+           box-shadow:0 2px 0 #141416; user-select:none; -webkit-user-select:none;
+           touch-action:manipulation; padding:0; }
+  button:active { transform:translateY(2px); box-shadow:none; }
+  button .second { position:absolute; top:2px; left:0; right:0; font-size:9px;
+                   color:#f0c419; font-weight:700; pointer-events:none; }
+  button.num { background:#e9e9ea; color:#17171a; box-shadow:0 2px 0 #a5a5a8; }
+  button.op  { background:#4a4a52; }
+  button.mod { background:#2f2f34; font-size:13px; }
+  button.del { background:#7ab648; color:#10240a; box-shadow:0 2px 0 #4e7a２b; }
+  button.eq  { background:#2f6fb5; box-shadow:0 2px 0 #1d4a7c; }
+  button.mod.active { background:#f0c419; color:#20200c; }
+  button.small { font-size:12px; }
+</style>
+</head>
+<body>
+<div id="shell">
+
+  <div id="lcd">
+    <div id="flags">
+      <span class="flag" id="fShift">SHIFT</span>
+      <span class="flag" id="fMem">M</span>
+      <span class="flag on" id="fAngle">DEG</span>
+    </div>
+    <div id="expr"></div>
+    <div id="out">0</div>
+  </div>
+
+  <div id="pad"></div>
+</div>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   A scientific calculator in the style of a classroom Casio: natural
+   display (stacked fractions, radicals, superscripts), exact fraction
+   arithmetic with an S<->D toggle, and a SHIFT layer for the inverse
+   functions.
+
+   Exactness matters for a maths class: 1 divided by 3 stays 1/3, and
+   2/6 + 1/6 shows 1/2, not 0.5. Rationals are held as BigInt pairs and
+   only collapse to floating point when a function demands it (trig,
+   logs, irrational roots).
+   ===================================================================== */
+
+/* ---------------------------------------------------------------- model */
+// The entry line is a flat list of atoms. Structure comes from bracket
+// atoms: "frac(" ... "|" ... ")" and "sqrt(" ... ")" and "^(" ... ")".
+let atoms = [];
+let caret = 0;            // insertion index into atoms
+let shift = false;
+let angleMode = "DEG";
+let memory = null;        // exact value or null
+let ans = R(0n, 1n);
+let lastValue = null;     // value currently shown in the result line
+let showDecimal = false;  // S<->D state
+let errored = false;
+
+/* ------------------------------------------------------- exact numbers */
+// A value is either {r:true, n:BigInt, d:BigInt} (exact rational)
+// or {r:false, v:Number} (inexact).
+function R(n, d) {
+  if (d === 0n) throw new Error("Math ERROR");
+  if (d < 0n) { n = -n; d = -d; }
+  const g = gcd(n < 0n ? -n : n, d);
+  return { r: true, n: n / g, d: d / g };
+}
+function F(v) { return { r: false, v: v }; }
+function gcd(a, b) { while (b) { const t = a % b; a = b; b = t; } return a === 0n ? 1n : a; }
+function toNum(x) { return x.r ? Number(x.n) / Number(x.d) : x.v; }
+function isExact(x) { return x.r === true; }
+
+function add(a, b) {
+  if (a.r && b.r) return R(a.n * b.d + b.n * a.d, a.d * b.d);
+  return F(toNum(a) + toNum(b));
+}
+function sub(a, b) {
+  if (a.r && b.r) return R(a.n * b.d - b.n * a.d, a.d * b.d);
+  return F(toNum(a) - toNum(b));
+}
+function mul(a, b) {
+  if (a.r && b.r) return R(a.n * b.n, a.d * b.d);
+  return F(toNum(a) * toNum(b));
+}
+function div(a, b) {
+  if (a.r && b.r) {
+    if (b.n === 0n) throw new Error("Math ERROR");
+    return R(a.n * b.d, a.d * b.n);
+  }
+  const bv = toNum(b);
+  if (bv === 0) throw new Error("Math ERROR");
+  return F(toNum(a) / bv);
+}
+function neg(a) { return a.r ? R(-a.n, a.d) : F(-a.v); }
+
+function ipow(base, e) {                       // exact integer power
+  let result = R(1n, 1n);
+  let b = base;
+  let k = e < 0n ? -e : e;
+  while (k > 0n) {
+    if (k & 1n) result = mul(result, b);
+    b = mul(b, b);
+    k >>= 1n;
+  }
+  return e < 0n ? div(R(1n, 1n), result) : result;
+}
+function power(a, b) {
+  if (a.r && b.r && b.d === 1n && (b.n > -64n && b.n < 64n)) return ipow(a, b.n);
+  const base = toNum(a), e = toNum(b);
+  if (base < 0 && !Number.isInteger(e)) throw new Error("Math ERROR");
+  return F(Math.pow(base, e));
+}
+function exactSqrt(x) {                        // perfect squares stay exact
+  if (!x.r || x.n < 0n) return null;
+  const s = (v) => { if (v < 2n) return v; let lo = 1n, hi = v;
+    while (lo <= hi) { const m = (lo + hi) >> 1n; const q = m * m;
+      if (q === v) return m; if (q < v) lo = m + 1n; else hi = m - 1n; } return null; };
+  const sn = s(x.n), sd = s(x.d);
+  return (sn !== null && sd !== null) ? R(sn, sd) : null;
+}
+function sqrtV(x) {
+  const e = exactSqrt(x);
+  if (e) return e;
+  const v = toNum(x);
+  if (v < 0) throw new Error("Math ERROR");
+  return F(Math.sqrt(v));
+}
+function factorial(x) {
+  const v = toNum(x);
+  if (!Number.isInteger(v) || v < 0 || v > 170) throw new Error("Math ERROR");
+  let r = R(1n, 1n);
+  for (let i = 2n; i <= BigInt(v); i++) r = mul(r, R(i, 1n));
+  return r;
+}
+
+const PI = Math.PI, E = Math.E;
+function toRad(v) { return angleMode === "DEG" ? v * PI / 180 : v; }
+function fromRad(v) { return angleMode === "DEG" ? v * 180 / PI : v; }
+
+/* ------------------------------------------------------------- parsing */
+// Atoms -> a linear maths string, then a recursive-descent parse. Doing
+// it in two steps keeps the structured editor independent of the parser.
+function atomsToSource(list) {
+  let out = "";
+  for (let i = 0; i < list.length; i++) {
+    const a = list[i];
+    if (a === "frac(") out += "((";
+    else if (a === "|") out += ")/(";
+    else if (a === "sqrt(") out += "sqrt((";
+    else if (a === "^(") out += "^((";
+    else if (a === ")") out += "))";     // closes the doubled bracket above
+    else if (a === "(") out += "(";
+    else if (a === ")p") out += ")";     // plain closing bracket
+    else out += a;
+  }
+  return out;
+}
+
+function tokenize(src) {
+  const t = [];
+  let i = 0;
+  const words = ["sqrt", "cbrt", "asin", "acos", "atan", "sin", "cos", "tan",
+                 "log10", "log", "ln", "abs", "Ans", "M"];
+  while (i < src.length) {
+    const c = src[i];
+    if (c === " ") { i++; continue; }
+    if (/[0-9.]/.test(c)) {
+      let j = i; while (j < src.length && /[0-9.]/.test(src[j])) j++;
+      t.push({ k: "num", v: src.slice(i, j) }); i = j; continue;
+    }
+    let matched = null;
+    for (const w of words) if (src.startsWith(w, i)) { matched = w; break; }
+    if (matched) { t.push({ k: "word", v: matched }); i += matched.length; continue; }
+    t.push({ k: "sym", v: c }); i++;
+  }
+  return t;
+}
+
+function parse(src) {
+  const t = tokenize(src);
+  let p = 0;
+  const peek = () => t[p];
+  const eat = (v) => { if (t[p] && t[p].v === v) { p++; return true; } return false; };
+
+  function parseExpr() {
+    let v = parseTerm();
+    for (;;) {
+      if (eat("+")) v = add(v, parseTerm());
+      else if (eat("-")) v = sub(v, parseTerm());
+      else return v;
+    }
+  }
+  function parseTerm() {
+    let v = parseUnary();
+    for (;;) {
+      const c = peek();
+      if (!c) return v;
+      if (c.v === "*" || c.v === "/") {
+        p++;
+        v = c.v === "*" ? mul(v, parseUnary()) : div(v, parseUnary());
+      } else if (c.k === "num" || c.v === "(" || c.k === "word" ||
+                 c.v === "π" || c.v === "e") {
+        v = mul(v, parseUnary());          // implicit multiplication: 2π, 3(4)
+      } else return v;
+    }
+  }
+  function parseUnary() {
+    if (eat("-")) return neg(parseUnary());
+    if (eat("+")) return parseUnary();
+    return parsePower();
+  }
+  function parsePower() {
+    const base = parsePostfix();
+    if (eat("^")) return power(base, parseUnary());
+    return base;
+  }
+  function parsePostfix() {
+    let v = parsePrimary();
+    for (;;) {
+      const c = peek();
+      if (!c) return v;
+      if (c.v === "²") { p++; v = power(v, R(2n, 1n)); }
+      else if (c.v === "³") { p++; v = power(v, R(3n, 1n)); }
+      else if (c.v === "⁻") { p++; if (peek() && peek().v === "¹") p++;
+                                   v = div(R(1n, 1n), v); }
+      else if (c.v === "!") { p++; v = factorial(v); }
+      else if (c.v === "%") { p++; v = div(v, R(100n, 1n)); }
+      else return v;
+    }
+  }
+  function parsePrimary() {
+    const c = peek();
+    if (!c) throw new Error("Syntax ERROR");
+    if (c.k === "num") {
+      p++;
+      if (c.v.indexOf(".") >= 0) {
+        const parts = c.v.split(".");
+        if (parts.length > 2) throw new Error("Syntax ERROR");
+        const decimals = parts[1].length;
+        const digits = (parts[0] || "0") + parts[1];
+        return R(BigInt(digits), 10n ** BigInt(decimals));
+      }
+      return R(BigInt(c.v), 1n);
+    }
+    if (c.v === "(") { p++; const v = parseExpr(); eat(")"); return v; }
+    if (c.v === "π") { p++; return F(PI); }
+    if (c.v === "e") { p++; return F(E); }
+    if (c.k === "word") {
+      p++;
+      if (c.v === "Ans") return ans;
+      if (c.v === "M") return memory || R(0n, 1n);
+      if (!eat("(")) throw new Error("Syntax ERROR");
+      const arg = parseExpr();
+      eat(")");
+      switch (c.v) {
+        case "sqrt": return sqrtV(arg);
+        case "cbrt": return F(Math.cbrt(toNum(arg)));
+        case "sin":  return F(Math.sin(toRad(toNum(arg))));
+        case "cos":  return F(Math.cos(toRad(toNum(arg))));
+        case "tan":  return F(Math.tan(toRad(toNum(arg))));
+        case "asin": return F(fromRad(Math.asin(toNum(arg))));
+        case "acos": return F(fromRad(Math.acos(toNum(arg))));
+        case "atan": return F(fromRad(Math.atan(toNum(arg))));
+        case "log":  return F(Math.log10(toNum(arg)));
+        case "log10":return F(Math.log10(toNum(arg)));
+        case "ln":   return F(Math.log(toNum(arg)));
+        case "abs":  return F(Math.abs(toNum(arg)));
+      }
+    }
+    throw new Error("Syntax ERROR");
+  }
+
+  const v = parseExpr();
+  if (p < t.length) throw new Error("Syntax ERROR");
+  return v;
+}
+
+/* ----------------------------------------------------------- rendering */
+function esc(s) {
+  return String(s).replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c]));
+}
+
+// Walk atoms, honouring the bracket structure, into display HTML.
+function renderAtoms(list, from, stop) {
+  let html = "";
+  let i = from;
+  while (i < list.length) {
+    const a = list[i];
+    if (stop && stop.indexOf(a) >= 0) break;
+    if (a === "│") { html += '<span class="caret"></span>'; i++; continue; }
+    if (a === "frac(") {
+      const num = renderAtoms(list, i + 1, ["|"]);
+      let j = num.next;
+      const den = renderAtoms(list, j + 1, [")"]);
+      html += '<span class="frac"><span class="num">' + (num.html || "&nbsp;") +
+              '</span><span class="den">' + (den.html || "&nbsp;") + "</span></span>";
+      i = den.next + 1;
+      continue;
+    }
+    if (a === "sqrt(") {
+      const b = renderAtoms(list, i + 1, [")"]);
+      html += '<span class="sqrt"><span class="sign">√</span><span class="body">' +
+              (b.html || "&nbsp;") + "</span></span>";
+      i = b.next + 1;
+      continue;
+    }
+    if (a === "^(") {
+      const b = renderAtoms(list, i + 1, [")"]);
+      html += '<sup class="pow">' + (b.html || "&nbsp;") + "</sup>";
+      i = b.next + 1;
+      continue;
+    }
+    if (a === "(")  { html += "("; i++; continue; }
+    if (a === ")p") { html += ")"; i++; continue; }
+    if (a === "*")  { html += "×"; i++; continue; }
+    if (a === "/")  { html += "÷"; i++; continue; }
+    html += esc(a);
+    i++;
+  }
+  return { html: html, next: i };
+}
+
+function fmtDecimal(v) {
+  if (!isFinite(v)) return "Math ERROR";
+  if (v === 0) return "0";
+  const a = Math.abs(v);
+  if (a >= 1e10 || a < 1e-9) {
+    let s = v.toExponential(9).replace(/(\.\d*?)0+e/, "$1e").replace(/\.e/, "e");
+    const m = s.split("e");
+    return m[0] + "×10<sup class=\"pow\">" + m[1].replace("+", "") + "</sup>";
+  }
+  let s = v.toPrecision(11);
+  if (s.indexOf(".") >= 0) s = s.replace(/0+$/, "").replace(/\.$/, "");
+  return s;
+}
+
+function fmtValue(x, forceDecimal) {
+  if (x.r && !forceDecimal) {
+    if (x.d === 1n) return esc(x.n.toString());
+    // improper fractions stay improper, as a calculator shows them
+    const sign = x.n < 0n ? "-" : "";
+    const n = (x.n < 0n ? -x.n : x.n).toString();
+    return sign + '<span class="frac"><span class="num">' + n +
+           '</span><span class="den">' + x.d.toString() + "</span></span>";
+  }
+  return fmtDecimal(toNum(x));
+}
+
+function draw() {
+  const withCaret = atoms.slice();
+  withCaret.splice(caret, 0, "│");
+  document.getElementById("expr").innerHTML = renderAtoms(withCaret, 0, null).html;
+  const e = document.getElementById("expr");
+  e.scrollLeft = e.scrollWidth;
+
+  document.getElementById("fShift").classList.toggle("on", shift);
+  document.getElementById("fMem").classList.toggle("on", memory !== null);
+  document.getElementById("fAngle").textContent = angleMode;
+  document.querySelectorAll("button.mod").forEach((b) => {
+    if (b.dataset.key === "shift") b.classList.toggle("active", shift);
+  });
+}
+
+function setResult(html) { document.getElementById("out").innerHTML = html; }
+
+/* ------------------------------------------------------------- editing */
+function insert(list) {
+  if (errored) { atoms = []; caret = 0; errored = false; }
+  for (const a of list) { atoms.splice(caret, 0, a); caret++; }
+
+  // Put the caret where typing continues, not after the closing bracket:
+  // pressing sin then 3 0 must give sin(30), not sin()30.
+  let back = 0;
+  if (list.indexOf("|") >= 0) back = list.length - 1;           // into the numerator
+  else if (list.length && (list[list.length - 1] === ")" ||
+                           list[list.length - 1] === ")p")) back = 1;
+  caret -= back;
+  draw();
+}
+function backspace() {
+  if (errored) { atoms = []; caret = 0; errored = false; draw(); return; }
+  if (caret === 0) return;
+  const a = atoms[caret - 1];
+
+  // At a structure's edge, step INSIDE rather than destroying it: after
+  // typing 2/6, DEL should let you fix the 6, not wipe the fraction.
+  if (a === ")" || a === ")p" || a === "|") { caret--; draw(); return; }
+
+  // Backing over an opener means the structure is now empty -- remove it whole.
+  if (a === "frac(" || a === "sqrt(" || a === "^(") {
+    let depth = 0, i = caret - 1;
+    for (; i < atoms.length; i++) {
+      const x = atoms[i];
+      if (x === "frac(" || x === "sqrt(" || x === "^(") depth++;
+      else if (x === ")") { depth--; if (depth === 0) break; }
+    }
+    const end = (i < atoms.length) ? i : atoms.length - 1;
+    atoms.splice(caret - 1, end - (caret - 1) + 1);
+    caret--;
+    draw();
+    return;
+  }
+
+  atoms.splice(caret - 1, 1);
+  caret--;
+  draw();
+}
+function allClear() {
+  atoms = []; caret = 0; shift = false; errored = false;
+  lastValue = null; showDecimal = false;
+  setResult("0"); draw();
+}
+
+function evaluate() {
+  if (!atoms.length) return;
+  try {
+    const v = parse(atomsToSource(atoms));
+    lastValue = v;
+    ans = v;
+    showDecimal = false;
+    errored = false;
+    setResult(fmtValue(v, false));
+  } catch (err) {
+    errored = true;
+    lastValue = null;
+    setResult(esc(err.message || "Syntax ERROR"));
+  }
+  draw();
+}
+
+function toggleSD() {
+  if (!lastValue) return;
+  showDecimal = !showDecimal;
+  setResult(fmtValue(lastValue, showDecimal));
+}
+
+/* ---------------------------------------------------------------- keys */
+// [label, secondLabel, class, primary action, shifted action]
+const KEYS = [
+  ["SHIFT", "", "mod", { key: "shift" }, null],
+  ["DRG", "", "mod small", { angle: 1 }, null],
+  ["◀", "", "mod", { move: -1 }, null],
+  ["▶", "", "mod", { move: 1 }, null],
+  ["S⇔D", "", "mod small", { sd: 1 }, null],
+
+  ["□/□", "", "op small", { ins: ["frac(", "|", ")"] }, null],
+  ["√", "³√", "op", { ins: ["sqrt(", ")"] }, { ins: ["cbrt", "(", ")p"] }],
+  ["x²", "x³", "op", { ins: ["²"] }, { ins: ["³"] }],
+  ["x□", "x⁻¹", "op small", { ins: ["^(", ")"] }, { ins: ["⁻¹"] }],
+  ["log", "10ˣ", "op small", { ins: ["log", "(", ")p"] },
+                                  { ins: ["1", "0", "^(", ")"] }],
+
+  ["ln", "eˣ", "op small", { ins: ["ln", "(", ")p"] },
+                                { ins: ["e", "^(", ")"] }],
+  ["sin", "sin⁻¹", "op small", { ins: ["sin", "(", ")p"] },
+                                         { ins: ["asin", "(", ")p"] }],
+  ["cos", "cos⁻¹", "op small", { ins: ["cos", "(", ")p"] },
+                                         { ins: ["acos", "(", ")p"] }],
+  ["tan", "tan⁻¹", "op small", { ins: ["tan", "(", ")p"] },
+                                         { ins: ["atan", "(", ")p"] }],
+  ["x!", "|x|", "op small", { ins: ["!"] }, { ins: ["abs", "(", ")p"] }],
+
+  ["(", "", "op", { ins: ["("] }, null],
+  [")", "", "op", { ins: [")p"] }, null],
+  ["π", "e", "op", { ins: ["π"] }, { ins: ["e"] }],
+  ["M+", "M", "op small", { mem: "add" }, { ins: ["M"] }],
+  ["RCL", "STO", "op small", { mem: "rcl" }, { mem: "sto" }],
+
+  ["7", "", "num", { ins: ["7"] }, null],
+  ["8", "", "num", { ins: ["8"] }, null],
+  ["9", "", "num", { ins: ["9"] }, null],
+  ["DEL", "", "del small", { del: 1 }, null],
+  ["AC", "", "del small", { ac: 1 }, null],
+
+  ["4", "", "num", { ins: ["4"] }, null],
+  ["5", "", "num", { ins: ["5"] }, null],
+  ["6", "", "num", { ins: ["6"] }, null],
+  ["×", "", "op", { ins: ["*"] }, null],
+  ["÷", "", "op", { ins: ["/"] }, null],
+
+  ["1", "", "num", { ins: ["1"] }, null],
+  ["2", "", "num", { ins: ["2"] }, null],
+  ["3", "", "num", { ins: ["3"] }, null],
+  ["+", "", "op", { ins: ["+"] }, null],
+  ["−", "", "op", { ins: ["-"] }, null],
+
+  ["0", "", "num", { ins: ["0"] }, null],
+  [".", "", "num", { ins: ["."] }, null],
+  ["%", "", "op", { ins: ["%"] }, null],
+  ["Ans", "", "op small", { ins: ["Ans"] }, null],
+  ["=", "", "eq", { eq: 1 }, null]
+];
+
+function act(a) {
+  if (!a) return;
+  if (a.key === "shift") { shift = !shift; draw(); return; }
+  if (a.move) {
+    caret = Math.max(0, Math.min(atoms.length, caret + a.move));
+    draw(); return;
+  }
+  if (a.angle) { angleMode = angleMode === "DEG" ? "RAD" : "DEG"; draw(); return; }
+  if (a.sd) { toggleSD(); return; }
+  if (a.del) { backspace(); return; }
+  if (a.ac) { allClear(); return; }
+  if (a.eq) { evaluate(); return; }
+  if (a.mem) {
+    if (a.mem === "add") { if (lastValue) memory = memory ? add(memory, lastValue) : lastValue; }
+    else if (a.mem === "sto") { if (lastValue) memory = lastValue; }
+    else if (a.mem === "rcl") { insert(["M"]); }
+    draw(); return;
+  }
+  if (a.ins) insert(a.ins);
+}
+
+const pad = document.getElementById("pad");
+KEYS.forEach((k) => {
+  const b = document.createElement("button");
+  b.className = k[2];
+  if (k[3] && k[3].key) b.dataset.key = k[3].key;
+  b.innerHTML = (k[1] ? '<span class="second">' + esc(k[1]) + "</span>" : "") + esc(k[0]);
+  b.addEventListener("click", () => {
+    const a = (shift && k[4]) ? k[4] : k[3];
+    const wasShift = shift;
+    act(a);
+    if (wasShift && !(a && a.key === "shift")) { shift = false; draw(); }
+  });
+  pad.appendChild(b);
+});
+
+// Physical keyboard, for a laptop
+window.addEventListener("keydown", (ev) => {
+  const k = ev.key;
+  if (/[0-9.]/.test(k) && k.length === 1) { insert([k]); ev.preventDefault(); return; }
+  if (k === "+" || k === "-") { insert([k]); ev.preventDefault(); return; }
+  if (k === "*") { insert(["*"]); ev.preventDefault(); return; }
+  if (k === "/") { insert(["/"]); ev.preventDefault(); return; }
+  if (k === "(") { insert(["("]); ev.preventDefault(); return; }
+  if (k === ")") { insert([")p"]); ev.preventDefault(); return; }
+  if (k === "^") { insert(["^(", ")"]); ev.preventDefault(); return; }
+  if (k === "Enter" || k === "=") { evaluate(); ev.preventDefault(); return; }
+  if (k === "Backspace") { backspace(); ev.preventDefault(); return; }
+  if (k === "Escape") { allClear(); ev.preventDefault(); return; }
+  if (k === "ArrowLeft") { act({ move: -1 }); ev.preventDefault(); return; }
+  if (k === "ArrowRight") { act({ move: 1 }); ev.preventDefault(); return; }
+});
+
+allClear();
+</script>
+</body>
+</html>

@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Slope Field</title>
+  <style>
+    html,body { margin:0; padding:0; width:100%; height:100%; background:#fff; font-family: system-ui, sans-serif; }
+    #root { display:flex; flex-direction:column; height:100%; box-sizing:border-box; }
+    .panel { padding:5px 8px; background:#f4f4f4; border-bottom:1px solid #ddd; display:flex; flex-wrap:wrap; gap:6px; font-size:11px; align-items:center; }
+    .panel label { display:flex; align-items:center; gap:3px; }
+    .panel input[type="number"] { width:44px; padding:1px 3px; font-size:11px; }
+    .panel input[type="text"] { padding:1px 4px; font-size:11px; }
+    .panel select { padding:1px; font-size:11px; }
+    button { padding:2px 8px; font-size:11px; cursor:pointer; }
+    #canvasWrap { flex:1; position:relative; cursor:crosshair; }
+    canvas { position:absolute; inset:0; width:100%; height:100%; }
+    #hint { padding:3px 8px; background:#fffbe6; border-bottom:1px solid #eed; font-size:11px; color:#775; }
+    .insertBtn { background:#2a7; color:#fff; border:1px solid #2a7; font-weight:bold; padding:3px 12px; }
+    .insertBtn:hover { background:#3b8; }
+    #footer { padding:4px 8px; background:#f0f0f0; border-top:1px solid #ddd; display:flex; justify-content:flex-end; gap:6px; }
+  </style>
+</head>
+<body>
+<div id="root">
+  <div class="panel">
+    <label>dy/dx = <input id="expr" type="text" value="x + y" style="width:130px"></label>
+    <label>Preset
+      <select id="preset">
+        <option value="">—</option>
+        <option value="x + y">x + y</option>
+        <option value="x - y">x − y</option>
+        <option value="x*y">x·y</option>
+        <option value="y">y</option>
+        <option value="-x/y">−x/y (circles)</option>
+        <option value="2*x">2x</option>
+        <option value="sin(x)">sin(x)</option>
+        <option value="y*(1 - y/4)">y(1 − y/4) logistic</option>
+        <option value="x/y">x/y</option>
+      </select>
+    </label>
+    <label>X: <input id="xmin" type="number" value="-5">..<input id="xmax" type="number" value="5"></label>
+    <label>Y: <input id="ymin" type="number" value="-5">..<input id="ymax" type="number" value="5"></label>
+    <label>Density
+      <select id="density">
+        <option value="15">Fine</option>
+        <option value="20" selected>Normal</option>
+        <option value="28">Coarse</option>
+      </select>
+    </label>
+    <button id="redraw">Redraw</button>
+    <button id="clearCurves">Clear curves</button>
+  </div>
+  <div id="hint">Tap anywhere on the field to draw the solution curve through that point.</div>
+  <div id="canvasWrap"><canvas id="c"></canvas></div>
+  <div id="footer">
+    <button class="insertBtn" id="insertBtn">Insert ↑ on board</button>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('c');
+let ctx = cv.getContext('2d');
+const curves = [];   // arrays of scene points {x,y}
+const CURVE_COLORS = ['#cc0000','#0055cc','#00892a','#a020a0','#cc7700','#00889b'];
+
+function compileExpr(expr) {
+  let js = String(expr || '').trim();
+  if (!js) return null;
+  js = js.replace(/\^/g, '**');
+  js = js.replace(/(\d)([a-zA-Z(])/g, '$1*$2');
+  js = js.replace(/\)(\d|[a-zA-Z(])/g, ')*$1');
+  const names = ['sin','cos','tan','asin','acos','atan','sinh','cosh','tanh',
+                 'sqrt','cbrt','abs','exp','log','log2','log10','floor','ceil','round','sign'];
+  for (const n of names) js = js.replace(new RegExp('\\b'+n+'\\b','g'), 'Math.'+n);
+  js = js.replace(/\bpi\b/gi, 'Math.PI');
+  try { return new Function('x','y','return ' + js + ';'); }
+  catch (e) { return null; }
+}
+
+let fn = compileExpr($('expr').value);
+
+function view() {
+  const xmin = +$('xmin').value, xmax = +$('xmax').value;
+  const ymin = +$('ymin').value, ymax = +$('ymax').value;
+  const W = cv.clientWidth, H = cv.clientHeight;
+  const pad = 24;
+  const sx = (W - pad*2) / (xmax - xmin);
+  const sy = (H - pad*2) / (ymax - ymin);
+  return {
+    xmin, xmax, ymin, ymax, W, H, pad, sx, sy,
+    X: x => pad + (x - xmin) * sx,
+    Y: y => H - pad - (y - ymin) * sy,
+    invX: px => xmin + (px - pad) / sx,
+    invY: py => ymin + (H - pad - py) / sy
+  };
+}
+
+function draw() {
+  const v = view();
+  ctx.clearRect(0, 0, v.W, v.H);
+
+  // axes
+  ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
+  if (v.ymin <= 0 && v.ymax >= 0) {
+    ctx.beginPath(); ctx.moveTo(v.pad, v.Y(0)); ctx.lineTo(v.W - v.pad, v.Y(0)); ctx.stroke();
+  }
+  if (v.xmin <= 0 && v.xmax >= 0) {
+    ctx.beginPath(); ctx.moveTo(v.X(0), v.pad); ctx.lineTo(v.X(0), v.H - v.pad); ctx.stroke();
+  }
+  // axis numbers (integers only, sparse)
+  ctx.fillStyle = '#888'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+  const xTick = Math.max(1, Math.round((v.xmax - v.xmin) / 10));
+  for (let x = Math.ceil(v.xmin); x <= v.xmax; x += xTick) {
+    if (x === 0) continue;
+    ctx.fillText(String(x), v.X(x), (v.ymin <= 0 && v.ymax >= 0 ? v.Y(0) : v.H - v.pad) + 12);
+  }
+  ctx.textAlign = 'right';
+  const yTick = Math.max(1, Math.round((v.ymax - v.ymin) / 10));
+  for (let y = Math.ceil(v.ymin); y <= v.ymax; y += yTick) {
+    if (y === 0) continue;
+    ctx.fillText(String(y), (v.xmin <= 0 && v.xmax >= 0 ? v.X(0) : v.pad) - 4, v.Y(y) + 3);
+  }
+
+  // slope ticks
+  if (fn) {
+    const spacing = +$('density').value;
+    const segLen = spacing * 0.4;
+    ctx.strokeStyle = '#4a72b0'; ctx.lineWidth = 1.4;
+    for (let px = v.pad; px <= v.W - v.pad; px += spacing) {
+      for (let py = v.pad; py <= v.H - v.pad; py += spacing) {
+        const x = v.invX(px), y = v.invY(py);
+        let m;
+        try { m = fn(x, y); } catch (_) { m = NaN; }
+        if (!isFinite(m)) {
+          // vertical tick for undefined/infinite slope only if 1/m ~ 0
+          continue;
+        }
+        // slope in *screen* space: dy_screen = -m * (sy/sx) * dx_screen
+        const a = Math.atan2(-m * v.sy / v.sx, 1);
+        const dx = Math.cos(a) * segLen / 2, dy = Math.sin(a) * segLen / 2;
+        ctx.beginPath();
+        ctx.moveTo(px - dx, py - dy);
+        ctx.lineTo(px + dx, py + dy);
+        ctx.stroke();
+      }
+    }
+  }
+
+  // solution curves
+  curves.forEach((pts, i) => {
+    ctx.strokeStyle = CURVE_COLORS[i % CURVE_COLORS.length];
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    let started = false;
+    for (const p of pts) {
+      const px = v.X(p.x), py = v.Y(p.y);
+      if (!started) { ctx.moveTo(px, py); started = true; }
+      else ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    // dot at the seed point
+    const seed = pts.seed;
+    if (seed) {
+      ctx.fillStyle = ctx.strokeStyle;
+      ctx.beginPath(); ctx.arc(v.X(seed.x), v.Y(seed.y), 3.5, 0, Math.PI*2); ctx.fill();
+    }
+  });
+}
+
+// RK4 solution through (x0,y0), both directions
+function solveThrough(x0, y0) {
+  if (!fn) return null;
+  const v = view();
+  const h = (v.xmax - v.xmin) / 600;
+  const yLimit = Math.max(Math.abs(v.ymin), Math.abs(v.ymax)) * 3;
+
+  function integrate(dir) {
+    const pts = [];
+    let x = x0, y = y0;
+    for (let i = 0; i < 2000; i++) {
+      pts.push({x, y});
+      const hh = h * dir;
+      let k1, k2, k3, k4;
+      try {
+        k1 = fn(x, y);
+        k2 = fn(x + hh/2, y + hh*k1/2);
+        k3 = fn(x + hh/2, y + hh*k2/2);
+        k4 = fn(x + hh, y + hh*k3);
+      } catch (_) { break; }
+      if (![k1,k2,k3,k4].every(isFinite)) break;
+      y += hh * (k1 + 2*k2 + 2*k3 + k4) / 6;
+      x += hh;
+      if (x < v.xmin - 0.5 || x > v.xmax + 0.5 || Math.abs(y) > yLimit) { pts.push({x, y}); break; }
+    }
+    return pts;
+  }
+
+  const fwd = integrate(1);
+  const bwd = integrate(-1).reverse();
+  const pts = bwd.concat(fwd.slice(1));
+  pts.seed = {x: x0, y: y0};
+  return pts;
+}
+
+function pointerDown(e) {
+  const r = cv.getBoundingClientRect();
+  const px = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+  const py = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
+  const v = view();
+  if (px < v.pad || px > v.W - v.pad || py < v.pad || py > v.H - v.pad) return;
+  const pts = solveThrough(v.invX(px), v.invY(py));
+  if (pts && pts.length > 1) { curves.push(pts); draw(); }
+}
+cv.addEventListener('mousedown', pointerDown);
+cv.addEventListener('touchstart', (e) => { pointerDown(e); e.preventDefault(); }, {passive: false});
+
+$('preset').addEventListener('change', () => {
+  if (!$('preset').value) return;
+  $('expr').value = $('preset').value;
+  fn = compileExpr($('expr').value);
+  curves.length = 0;
+  draw();
+});
+$('expr').addEventListener('input', () => {
+  const f = compileExpr($('expr').value);
+  if (f) { fn = f; curves.length = 0; draw(); }
+});
+['xmin','xmax','ymin','ymax','density'].forEach(id => {
+  $(id).addEventListener('change', () => { curves.length = 0; draw(); });
+});
+$('redraw').addEventListener('click', () => { fn = compileExpr($('expr').value); draw(); });
+$('clearCurves').addEventListener('click', () => { curves.length = 0; draw(); });
+
+function insertOnBoard() {
+  const dpr = window.devicePixelRatio || 1;
+  const scale = 2;
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, Math.floor(cv.width / dpr * scale));
+  out.height = Math.max(1, Math.floor(cv.height / dpr * scale));
+  const octx = out.getContext('2d');
+  octx.fillStyle = '#fff'; octx.fillRect(0, 0, out.width, out.height);
+  octx.drawImage(cv, 0, 0, cv.width, cv.height, 0, 0, out.width, out.height);
+  const dataUrl = out.toDataURL('image/png');
+  if (window.sankore && window.sankore.addObject) {
+    window.sankore.addObject(dataUrl, 0, 0, 0, 0, false);
+  }
+}
+$('insertBtn').addEventListener('click', insertOnBoard);
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.max(1, Math.floor(r.width * dpr));
+  cv.height = Math.max(1, Math.floor(r.height * dpr));
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+new ResizeObserver(resize).observe($('canvasWrap'));
+window.addEventListener('resize', resize);
+window.addEventListener('load', resize);
+resize();
+setTimeout(resize, 100);
+setTimeout(resize, 500);
+</script>
+</body>
+</html>

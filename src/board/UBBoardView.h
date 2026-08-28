@@ -192,6 +192,24 @@ private:
     bool mLassoDragging{false};
     QPointF mLassoDragLastScene;
 
+    // WistOpenboard fork: the fork own interactive items (editable shapes,
+    // curves) carry handles that sit OUTSIDE their body -- a delete chip, a
+    // rotation dot, corner grips. Those land over page content, and a page
+    // item (e.g. UBGraphicsPDFItem) wins the scene hit test there, so the
+    // press was routed to the page and the handles were dead. When a press
+    // lands on one of these items we dispatch press/move/release to it
+    // directly and remember it here for the rest of the gesture.
+    QGraphicsItem* mForkItemTarget{nullptr};
+    // Gesture state carried between synthetic events: an item computes its
+    // drag delta from lastScenePos(), which a hand-built event does not fill.
+    QPointF mForkLastScenePos;
+    QPoint  mForkLastScreenPos;
+    QPointF mForkPressScenePos;
+    QPoint  mForkPressScreenPos;
+    QGraphicsItem* forkInteractiveItemAt(const QPointF& scenePos);
+    QGraphicsItem* touchDirectTargetAt(const QPointF& scenePos);
+    bool dispatchToForkItem(QEvent::Type type, const QPointF& scenePos, const QPoint& screenPos);
+
     bool isAbsurdPoint(QPoint point);
 
     bool mVirtualKeyboardActive;

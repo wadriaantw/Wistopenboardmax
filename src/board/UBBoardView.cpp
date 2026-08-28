@@ -81,11 +81,16 @@
 #include "domain/UBGraphicsGroupContainerItem.h"
 #include "domain/UBGraphicsStrokesGroup.h"
 #include "domain/UBGraphicsItemDelegate.h"
+#include "domain/UBGraphicsDelegateFrame.h"
 #include "domain/UBGraphicsTextItemDelegate.h"
 
 #include "document/UBDocumentProxy.h"
 
 #include "tools/UBGraphicsRuler.h"
+#include "domain/UBEditableShapeItem.h"
+#include <typeinfo>
+#include <QGraphicsSceneMouseEvent>
+#include "domain/UBGraphicsCurveItem.h"
 #include "tools/UBGraphicsAxes.h"
 #include "tools/UBGraphicsCurtainItem.h"
 #include "tools/UBGraphicsCompass.h"
@@ -680,17 +685,37 @@ bool UBBoardView::event (QEvent * e)
         if (e->type() == QEvent::TouchBegin) {
             mTouchOverWidget = false;
             if (scene()) {
+                // Embedded W3C web widgets always need manual touch→mouse
+                // synthesis. The fork's own interactive items (editable
+                // shapes, curves, and the instruments with their close/resize
+                // buttons) need it too, but ONLY under the Selector/Play
+                // tools — with the pen active a finger stroke across a shape
+                // must still draw ink, not grab the shape. Plain content
+                // (PDFs, ink, delegate frames) stays on Qt's native touch
+                // machinery — synthesizing for those crashed Qt6Gui
+                // (QDrag::~QDrag).
+                UBStylusTool::Enum beginTool = (UBStylusTool::Enum)UBDrawingController::drawingController()->stylusTool();
+                const bool selectLike = (beginTool == UBStylusTool::Selector
+                                         || beginTool == UBStylusTool::Play);
                 QPointF scenePos = mapToScene(ptPos(pts.first()).toPoint());
                 const auto items = scene()->items(scenePos, Qt::IntersectsItemShape, Qt::DescendingOrder);
                 for (QGraphicsItem *it : items) {
                     QGraphicsItem *cur = it;
                     while (cur) {
-                        // Only embedded W3C web widgets (YouTube, GeoGebra, Calc...)
-                        // need manual touch→mouse synthesis. Anything else (PDFs,
-                        // ink, shapes, delegate frames) handles touches natively
-                        // through Qt's drag/event machinery — synthesizing here
-                        // breaks that and crashes Qt6Gui (QDrag::~QDrag).
-                        if (dynamic_cast<UBGraphicsW3CWidgetItem*>(cur)) {
+                        // The selection frame and its buttons are SIBLINGS of the
+                        // widget, not children, so walking up from the widget never
+                        // reached them: a finger could move a widget but not close or
+                        // resize it, while a mouse could do both.
+                        if (dynamic_cast<UBGraphicsW3CWidgetItem*>(cur)
+                            || dynamic_cast<UBGraphicsDelegateFrame*>(cur)
+                            || dynamic_cast<DelegateButton*>(cur)
+                            || (selectLike && (dynamic_cast<UBEditableShapeItem*>(cur)
+                                               || dynamic_cast<UBGraphicsCurveItem*>(cur)
+                                               || dynamic_cast<UBGraphicsRuler*>(cur)
+                                               || dynamic_cast<UBGraphicsProtractor*>(cur)
+                                               || dynamic_cast<UBGraphicsCompass*>(cur)
+                                               || dynamic_cast<UBGraphicsTriangle*>(cur)
+                                               || dynamic_cast<UBGraphicsAxes*>(cur)))) {
                             mTouchOverWidget = true;
                             break;
                         }
@@ -737,7 +762,22 @@ bool UBBoardView::event (QEvent * e)
             sme.setModifiers(Qt::NoModifier);
 
             if (scene()) {
-                QApplication::sendEvent(scene().get(), &sme);
+                // WistOpenboard fork: the fork own interactive items must get
+                // the touch directly -- sending to the scene lets page content
+                // (a PDF page item) win the hit test where their handles sit.
+                QGraphicsItem* forkItem = touchDirectTargetAt(scenePos);
+
+                if (e->type() == QEvent::TouchBegin)
+                    mForkItemTarget = forkItem;
+
+                if (mForkItemTarget) {
+                    dispatchToForkItem(mtype, scenePos, viewport()->mapToGlobal(vpPos.toPoint()));
+                    if (e->type() == QEvent::TouchEnd)
+                        mForkItemTarget = nullptr;
+                }
+                else {
+                    QApplication::sendEvent(scene().get(), &sme);
+                }
             }
 
             te->accept();
@@ -1345,6 +1385,10 @@ void UBBoardView::handleItemMousePress(QMouseEvent *event)
     if (isMultipleSelectionEnabled())
         return;
 
+    ubShapeDebugLog(QString("  forwardToScene=%1 movingItem=%2")
+                    .arg(itemShouldReceiveMousePressEvent(getMovingItem()))
+                    .arg(getMovingItem() ? QString::fromLatin1(typeid(*getMovingItem()).name()) : QString("<null>")));
+
     if (itemShouldReceiveMousePressEvent(getMovingItem())){
         QGraphicsView::mousePressEvent (event);
 
@@ -1916,6 +1960,106 @@ void UBBoardView::longPressEvent()
 
 }
 
+// WistOpenboard fork: topmost editable shape / curve whose shape() contains
+// the point, ignoring stacking against page content.
+QGraphicsItem* UBBoardView::forkInteractiveItemAt(const QPointF& scenePos)
+{
+    if (!scene())
+        return nullptr;
+
+    const QList<QGraphicsItem*> hits = scene()->items(scenePos, Qt::IntersectsItemShape, Qt::DescendingOrder);
+
+    for (QGraphicsItem* it : hits)
+    {
+        if (dynamic_cast<UBEditableShapeItem*>(it) || dynamic_cast<UBGraphicsCurveItem*>(it))
+            return it;
+
+        // Stop at anything the user can interact with in its own right. Only
+        // page content (the PDF page, the background) may be looked through --
+        // scanning past a widget would steal taps meant for its contents.
+        if (dynamic_cast<UBGraphicsW3CWidgetItem*>(it))
+            return nullptr;
+    }
+
+    return nullptr;
+}
+
+// Touch-only: everything forkInteractiveItemAt covers, PLUS a selected
+// widget's frame furniture (its close/duplicate/menu buttons and the resize
+// corner). Those must be delivered DIRECTLY to the item. Handing them to the
+// scene instead runs Qt's grab/drag machinery over synthesized events, which
+// crashes in QDrag teardown -- the failure the comment in the touch handler
+// warns about, and which moving a widget by finger reproduced.
+QGraphicsItem* UBBoardView::touchDirectTargetAt(const QPointF& scenePos)
+{
+    if (QGraphicsItem* fork = forkInteractiveItemAt(scenePos))
+        return fork;
+
+    if (!scene())
+        return nullptr;
+
+    const QList<QGraphicsItem*> hits = scene()->items(scenePos, Qt::IntersectsItemShape, Qt::DescendingOrder);
+
+    for (QGraphicsItem* it : hits)
+    {
+        if (dynamic_cast<DelegateButton*>(it) || dynamic_cast<UBGraphicsDelegateFrame*>(it))
+            return it;
+
+        // A widget's frame surrounds AND underlies it, so the frame is still in
+        // this list when the finger is on the widget's own controls. Returning
+        // it there handed every tap on a calculator key to the resize/move
+        // logic -- the widget "became huge" on a plain tap. The topmost item
+        // wins: a tap on the widget goes to the widget.
+        if (dynamic_cast<UBGraphicsW3CWidgetItem*>(it))
+            return nullptr;
+    }
+
+    return nullptr;
+}
+
+// Send one synthetic scene mouse event straight to the remembered item. The
+// scene own dispatch is bypassed on purpose: it picks by stacking order and
+// would hand the press to the page underneath.
+bool UBBoardView::dispatchToForkItem(QEvent::Type type, const QPointF& scenePos, const QPoint& screenPos)
+{
+    if (!mForkItemTarget || !scene())
+        return false;
+
+    if (type == QEvent::GraphicsSceneMousePress)
+    {
+        mForkPressScenePos = scenePos;
+        mForkPressScreenPos = screenPos;
+        mForkLastScenePos = scenePos;
+        mForkLastScreenPos = screenPos;
+    }
+
+    QGraphicsSceneMouseEvent sme(type);
+    sme.setPos(mForkItemTarget->mapFromScene(scenePos));
+    sme.setScenePos(scenePos);
+    sme.setScreenPos(screenPos);
+
+    // A real scene-dispatched event carries the previous and press-time
+    // positions too. UBGraphicsDelegateFrame derives its move/resize delta from
+    // lastScenePos(); leaving it at the origin measured every drag from scene
+    // (0,0), which collapsed or exploded the widget on the first finger move.
+    sme.setLastPos(mForkItemTarget->mapFromScene(mForkLastScenePos));
+    sme.setLastScenePos(mForkLastScenePos);
+    sme.setLastScreenPos(mForkLastScreenPos);
+    sme.setButtonDownPos(Qt::LeftButton, mForkItemTarget->mapFromScene(mForkPressScenePos));
+    sme.setButtonDownScenePos(Qt::LeftButton, mForkPressScenePos);
+    sme.setButtonDownScreenPos(Qt::LeftButton, mForkPressScreenPos);
+
+    sme.setButton(Qt::LeftButton);
+    sme.setButtons(type == QEvent::GraphicsSceneMouseRelease ? Qt::NoButton : Qt::LeftButton);
+    sme.setModifiers(Qt::NoModifier);
+
+    scene()->sendEvent(mForkItemTarget, &sme);
+
+    mForkLastScenePos = scenePos;
+    mForkLastScreenPos = screenPos;
+    return true;
+}
+
 void UBBoardView::mousePressEvent (QMouseEvent *event)
 {
     // WistOpenboard fork: in continuous mode a press may land on a page that
@@ -2021,6 +2165,64 @@ void UBBoardView::mousePressEvent (QMouseEvent *event)
     mMouseDownPos = eventPosition.toPoint();
 
     setMovingItem(scene()->itemAt(this->mapToScene(eventPosition.toPoint()), QTransform()));
+
+    // WistOpenboard fork: temporary click-routing diagnostics (shape-debug.log).
+    {
+        QGraphicsItem* hit = getMovingItem();
+        const QPointF sp = mapToScene(eventPosition.toPoint());
+        ubShapeDebugLog(QString("viewPress tool=%1 scene=(%2,%3) hit=%4 type=%5 sel=%6 isBg=%7")
+                        .arg((int)UBDrawingController::drawingController()->stylusTool())
+                        .arg(int(sp.x())).arg(int(sp.y()))
+                        .arg(hit ? QString::fromLatin1(typeid(*hit).name()) : QString("<null>"))
+                        .arg(hit ? hit->type() : -1)
+                        .arg(hit ? hit->isSelected() : false)
+                        .arg(hit && scene() && hit == scene()->backgroundObject()));
+    }
+
+    // WistOpenboard fork: give the fork interactive items first refusal on the
+    // press (see mForkItemTarget). Only under the pointer-style tools, so a pen
+    // stroke across a shape still draws ink.
+    {
+        const UBStylusTool::Enum t = (UBStylusTool::Enum)UBDrawingController::drawingController()->stylusTool();
+
+        if (event->button() == Qt::LeftButton && (t == UBStylusTool::Selector || t == UBStylusTool::Play))
+        {
+            const QPointF sp = mapToScene(eventPosition.toPoint());
+            mForkItemTarget = forkInteractiveItemAt(sp);
+
+            if (!mForkItemTarget && scene())
+            {
+                // Why did the point miss? Report every shape's own verdict.
+                for (QGraphicsItem* it : scene()->items())
+                {
+                    if (UBEditableShapeItem* shp = dynamic_cast<UBEditableShapeItem*>(it))
+                    {
+                        const QPointF lp = shp->mapFromScene(sp);
+                        ubShapeDebugLog(QString("  miss: shape sel=%1 z=%2 local=(%3,%4) shapeContains=%5 brContains=%6")
+                                        .arg(shp->isSelected())
+                                        .arg(shp->zValue())
+                                        .arg(int(lp.x())).arg(int(lp.y()))
+                                        .arg(shp->shape().contains(lp))
+                                        .arg(shp->boundingRect().contains(lp)));
+                    }
+                }
+            }
+
+            if (mForkItemTarget)
+            {
+                ubShapeDebugLog(QString("  -> direct dispatch to %1")
+                                .arg(QString::fromLatin1(typeid(*mForkItemTarget).name())));
+                mMouseButtonIsPressed = true;
+                dispatchToForkItem(QEvent::GraphicsSceneMousePress, sp, event->globalPosition().toPoint());
+                event->accept();
+                return;
+            }
+        }
+        else if (event->button() == Qt::LeftButton)
+        {
+            mForkItemTarget = nullptr;
+        }
+    }
 
     if (event->button () == Qt::LeftButton && isInteractive())
     {
@@ -2178,6 +2380,16 @@ void UBBoardView::mousePressEvent (QMouseEvent *event)
 
 void UBBoardView::mouseMoveEvent (QMouseEvent *event)
 {
+    // WistOpenboard fork: continue a gesture owned by an editable shape/curve.
+    if (mForkItemTarget && (event->buttons() & Qt::LeftButton))
+    {
+        dispatchToForkItem(QEvent::GraphicsSceneMouseMove,
+                           mapToScene(event->pos()),
+                           event->globalPosition().toPoint());
+        event->accept();
+        return;
+    }
+
     // Space-hold pan: translate the view by the cursor delta. Same scrollbar
     // mechanism used by the touch and wheel pan paths.
     if (mSpaceHeld && (event->buttons() & Qt::LeftButton)) {
@@ -2416,6 +2628,20 @@ void UBBoardView::movingItemDestroyed(QObject*)
 
 void UBBoardView::mouseReleaseEvent (QMouseEvent *event)
 {
+    // WistOpenboard fork: end a gesture owned by an editable shape/curve. The
+    // target is cleared first: a release on the delete chip removes the item.
+    if (mForkItemTarget)
+    {
+        QGraphicsItem* target = mForkItemTarget;
+        const QPointF sp = mapToScene(event->pos());
+        dispatchToForkItem(QEvent::GraphicsSceneMouseRelease, sp, event->globalPosition().toPoint());
+        Q_UNUSED(target);
+        mForkItemTarget = nullptr;
+        mMouseButtonIsPressed = false;
+        event->accept();
+        return;
+    }
+
     // Space-hold pan: end the pan grip but keep the "open hand" cursor while
     // Space is still held — releasing Space restores the normal cursor.
     if (mSpaceHeld && event->button() == Qt::LeftButton) {

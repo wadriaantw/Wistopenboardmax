@@ -37,14 +37,17 @@
 <div id="player" style="display:none;"></div>
 
 <script>
-// Public YouTube search/stream backends (no API key).
+// Public YouTube search/stream backends (no API key). Audited 2026-08: most
+// public Invidious instances are dead or behind bot challenges, so search is
+// best-effort — instances are raced in PARALLEL with a short timeout and the
+// paste-a-link flow (which uses youtube.com/embed and always works) is the
+// primary path. Refresh this list from https://api.invidious.io/ when search
+// stops returning results.
 const PIPED_APIS = [];
 const INVIDIOUS_APIS = [
-  'https://inv.thepixora.com',
-  'https://invidious.privacydev.net',
   'https://yewtu.be',
-  'https://inv.nadeko.net',
-  'https://iv.datura.network'
+  'https://invidious.nerdvpn.de',
+  'https://inv.nadeko.net'
 ];
 
 let _goodInvidiousInstance = null;
@@ -94,27 +97,86 @@ function normalize(item, source) {
   return { videoId: item.videoId, title: item.title || '', author: item.author || '', thumb };
 }
 
+// WistOpenboard fork: primary search path. The C++ host (window.sankore,
+// exposed over QWebChannel) fetches youtube.com's own results page natively —
+// no CORS applies there and no third-party service is involved — and answers
+// through the youtubeSearchResult signal. Everything below it is fallback.
+function waitForSankore(ms) {
+  return new Promise(resolve => {
+    const t0 = Date.now();
+    (function poll() {
+      if (window.sankore) return resolve(window.sankore);
+      if (Date.now() - t0 > ms) return resolve(null);
+      setTimeout(poll, 100);
+    })();
+  });
+}
+
+function hostSearch(query, ms) {
+  return new Promise((resolve, reject) => {
+    const sankore = window.sankore;
+    if (!sankore || typeof sankore.youtubeSearch !== 'function' || !sankore.youtubeSearchResult) {
+      reject(new Error('host bridge unavailable'));
+      return;
+    }
+    let done = false;
+    const finish = (fn, arg) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { sankore.youtubeSearchResult.disconnect(handler); } catch (e) {}
+      fn(arg);
+    };
+    const timer = setTimeout(() => finish(reject, new Error('host search timeout')), ms);
+    const handler = (q, json) => {
+      if (q !== query) return;
+      let items = [];
+      try { items = JSON.parse(json); } catch (e) {}
+      const normalized = (Array.isArray(items) ? items : []).filter(i => i && i.id).map(i => ({
+        videoId: i.id, title: i.title || '', author: i.author || '', length: i.length || '',
+        thumb: 'https://i.ytimg.com/vi/' + i.id + '/mqdefault.jpg'
+      }));
+      if (normalized.length) finish(resolve, normalized);
+      else finish(reject, new Error('host search empty'));
+    };
+    sankore.youtubeSearchResult.connect(handler);
+    sankore.youtubeSearch(query);
+  });
+}
+
 async function searchYouTube(query) {
-  const errors = [];
-  for (const base of PIPED_APIS) {
-    try {
-      const data = await fetchJsonWithTimeout(base + '/search?q=' + encodeURIComponent(query) + '&filter=videos', 6000);
-      const items = (data && Array.isArray(data.items)) ? data.items : [];
-      const normalized = items.map(i => normalize(i, 'piped')).filter(Boolean);
-      if (normalized.length > 0) return { items: normalized };
-      errors.push(base + ': empty');
-    } catch (e) { errors.push(base + ': ' + e.message); }
+  try {
+    await waitForSankore(2000);
+    const items = await hostSearch(query, 12000);
+    return { items };
+  } catch (e) { /* fall through to public backends */ }
+
+  // Race every backend in parallel: first non-empty result wins. The old
+  // serial loop made a dead list cost 6s PER instance before giving up.
+  const attempts = [
+    ...PIPED_APIS.map(base =>
+      fetchJsonWithTimeout(base + '/search?q=' + encodeURIComponent(query) + '&filter=videos', 5000)
+        .then(data => {
+          const items = (data && Array.isArray(data.items)) ? data.items : [];
+          const normalized = items.map(i => normalize(i, 'piped')).filter(Boolean);
+          if (!normalized.length) throw new Error(base + ': empty');
+          return normalized;
+        })),
+    ...INVIDIOUS_APIS.map(base =>
+      fetchJsonWithTimeout(base + '/api/v1/search?type=video&q=' + encodeURIComponent(query), 5000)
+        .then(data => {
+          const items = Array.isArray(data) ? data : [];
+          const normalized = items.map(i => normalize(i, 'invidious')).filter(Boolean);
+          if (!normalized.length) throw new Error(base + ': empty');
+          return normalized;
+        }))
+  ];
+  if (!attempts.length) return { items: [], errors: ['no backends configured'] };
+  try {
+    return { items: await Promise.any(attempts) };
+  } catch (agg) {
+    return { items: [], errors: (agg.errors || []).map(e => e.message) };
   }
-  for (const base of INVIDIOUS_APIS) {
-    try {
-      const data = await fetchJsonWithTimeout(base + '/api/v1/search?type=video&q=' + encodeURIComponent(query), 6000);
-      const items = Array.isArray(data) ? data : [];
-      const normalized = items.map(i => normalize(i, 'invidious')).filter(Boolean);
-      if (normalized.length > 0) return { items: normalized };
-      errors.push(base + ': empty');
-    } catch (e) { errors.push(base + ': ' + e.message); }
-  }
-  return { items: [], errors };
 }
 
 function renderResults(items) {
@@ -207,13 +269,13 @@ function _showStatus(text, color) {
 function openExternal(url) {
   _showStatus('Opening: ' + url);
 
-  // Primary path: navigate to a custom scheme that WistOpenboard's WebPage
-  // intercepts in acceptNavigationRequest and forwards to QDesktopServices,
-  // which opens the user's real default browser. Top-level navigation to
-  // a scheme that's not actually performed (we return false) so the widget
-  // page itself stays on screen.
+  // Primary path: the openboard-web: scheme opens the URL in OpenBoard's OWN
+  // Web mode (WebPage::acceptNavigationRequest routes it to the web
+  // controller) — the teacher stays inside the board app instead of being
+  // thrown out to the OS browser. The navigation itself is swallowed, so the
+  // widget page stays on screen.
   try {
-    window.location.href = 'openboard-external:' + url;
+    window.location.href = 'openboard-web:' + url;
     return;
   } catch (e) { _showStatus('navigate failed: ' + e.message, '#600'); }
 
@@ -260,12 +322,44 @@ async function play(id) {
   p.innerHTML = fallbackBar;
   const host = $('iframeHost');
 
+  // WistOpenboard fork: preferred provider is the app's localhost player shim
+  // (sankore.youtubePlayerUrl). Its wrapper page has a real http:// origin, so
+  // Chromium sends a Referer to YouTube — without one the embed player refuses
+  // playback (error 153). The direct embeds below stay as fallbacks.
+  let shimUrl = '';
+  try {
+    await waitForSankore(2000);
+    if (window.sankore && typeof sankore.youtubePlayerUrl === 'function') {
+      shimUrl = await new Promise(res => {
+        let done = false;
+        setTimeout(() => { if (!done) { done = true; res(''); } }, 2000);
+        sankore.youtubePlayerUrl(id, url => { if (!done) { done = true; res(url || ''); } });
+      });
+    }
+    // Security software on some machines blocks the renderer from loopback
+    // HTTP entirely (the iframe then shows a silent error page that still
+    // fires `load`, wedging the provider chain). Only use the shim if a quick
+    // probe can actually reach it.
+    if (shimUrl) {
+      const reachable = await new Promise(res => {
+        let done = false;
+        setTimeout(() => { if (!done) { done = true; res(false); } }, 1500);
+        fetch(shimUrl, { mode: 'no-cors' })
+          .then(() => { if (!done) { done = true; res(true); } })
+          .catch(() => { if (!done) { done = true; res(false); } });
+      });
+      if (!reachable) shimUrl = '';
+    }
+  } catch (e) {}
+
+  const providers = (shimUrl ? [() => shimUrl] : []).concat(EMBED_PROVIDERS);
+
   // Try providers in order. If the iframe network-errors or never fires `load`
   // within the timeout, advance to the next provider.
   let providerIdx = 0;
   const tryNext = () => {
     if (p.style.display === 'none') return;          // user clicked Back
-    if (providerIdx >= EMBED_PROVIDERS.length) {
+    if (providerIdx >= providers.length) {
       host.innerHTML = '<div style="color:#ccc;padding:20px;font-size:13px;text-align:center;">'
         + 'Embedding blocked for this video.<br><br>'
         + '<a href="#" onclick="openExternal(\'' + watchAttr + '\'); return false;" '
@@ -274,7 +368,7 @@ async function play(id) {
         + '</div>';
       return;
     }
-    const src = EMBED_PROVIDERS[providerIdx++](id);
+    const src = providers[providerIdx++](id);
     host.innerHTML = '<iframe src="' + src + '" '
       + 'allow="autoplay; fullscreen; encrypted-media; picture-in-picture" '
       + 'allowfullscreen></iframe>';
@@ -305,8 +399,16 @@ async function onSearch() {
   showResults();
   const result = await searchYouTube(q);
   if (!result.items || result.items.length === 0) {
-    const details = (result.errors || []).map(e => '<div style="font-size:11px;color:#666;margin-top:4px;">' + escapeHtml(e) + '</div>').join('');
-    $('results').innerHTML = '<div id="status">No results. All search backends are unavailable — try again in a minute, or paste a video URL directly.' + details + '</div>';
+    // Search backends are dead (the usual state) — hand the search to
+    // OpenBoard's Web mode via the openboard-web: scheme instead.
+    $('results').innerHTML = '<div id="status" style="line-height:1.8">'
+      + '<button id="webSearchBtn" style="padding:10px 22px;font-size:15px;border:none;border-radius:6px;'
+      + 'background:#c00;color:#fff;cursor:pointer;font-weight:bold;">Search YouTube in the browser ↗</button><br>'
+      + 'Then copy the video link, come back to Board mode, and paste it in the box above to play it here.'
+      + '</div>';
+    document.getElementById('webSearchBtn').addEventListener('click', () => {
+      window.location.href = 'openboard-web:https://www.youtube.com/results?search_query=' + encodeURIComponent(q);
+    });
     return;
   }
   $('results').innerHTML = '';

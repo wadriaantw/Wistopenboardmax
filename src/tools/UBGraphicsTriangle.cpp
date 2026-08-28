@@ -961,7 +961,17 @@ void UBGraphicsTriangle::mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
     {
         QGraphicsItem::mouseReleaseEvent(event);
     }
-    mShowButtons = true;
+    if (isVisible())
+    {
+        mShowButtons = true;
+        // WistOpenboard fork: also reveal the svg buttons -- hover never
+        // fires on finger touch, so the tap must surface them.
+        mCloseSvgItem->setParentItem(this);
+        mCloseSvgItem->setVisible(true);
+        mHFlipSvgItem->setVisible(contains(hFlipRect()));
+        mVFlipSvgItem->setVisible(contains(vFlipRect()));
+        mRotateSvgItem->setVisible(contains(rotateRect()));
+    }
     update();
     if (scene())
         scene()->setModified(true);

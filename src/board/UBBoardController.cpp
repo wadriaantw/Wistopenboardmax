@@ -58,6 +58,7 @@
 #include "core/UBSetting.h"
 #include "core/UBSettings.h"
 #include "core/UBTheme.h"
+#include "gui/UBModernIcons.h"
 #include "core/UBSettings.h"
 
 #include "document/UBDocument.h"
@@ -584,7 +585,7 @@ void UBBoardController::setupToolbar()
         };
 
         QToolButton *zoomInBtn = new QToolButton(mMainWindow->boardToolBar);
-        zoomInBtn->setIcon(QIcon(":/images/stylusPalette/zoomIn.png"));
+        zoomInBtn->setIcon(UBModernIcons::zoomInIcon());
         zoomInBtn->setIconSize(QSize(32, 32));
         zoomInBtn->setText(tr("Zoom In"));
         zoomInBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
@@ -595,7 +596,7 @@ void UBBoardController::setupToolbar()
         });
 
         QToolButton *zoomOutBtn = new QToolButton(mMainWindow->boardToolBar);
-        zoomOutBtn->setIcon(QIcon(":/images/stylusPalette/zoomOut.png"));
+        zoomOutBtn->setIcon(UBModernIcons::zoomOutIcon());
         zoomOutBtn->setIconSize(QSize(32, 32));
         zoomOutBtn->setText(tr("Zoom Out"));
         zoomOutBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
@@ -635,17 +636,36 @@ void UBBoardController::setupToolbar()
                 // widget's designed nominal size — small math widgets like
                 // Grid have minimum-usable layouts that break if we squeeze
                 // them too small. Aspect ratio is preserved.
-                const QSizeF sceneSize = mActiveScene->sceneRect().size();
-                if (sceneSize.width() > 0 && sceneSize.height() > 0) {
+                // Size against the PAGE, not sceneRect(): the scene rect spans the
+                // whole scrollable area and grows with content, so widgets were
+                // coming out many times the size of the page.
+                QSizeF pageSize = mActiveScene->nominalSize();
+                if (pageSize.width() <= 0 || pageSize.height() <= 0)
+                    pageSize = mActiveScene->sceneRect().size();
+
+                if (pageSize.width() > 0 && pageSize.height() > 0) {
                     const QSize nom = item->nominalSize();
-                    qreal targetW = sceneSize.width() * 0.40;
-                    qreal aspect  = 0.66;
-                    if (nom.width() > 0 && nom.height() > 0) {
+                    qreal aspect = 0.66;
+                    if (nom.width() > 0 && nom.height() > 0)
                         aspect = qreal(nom.height()) / qreal(nom.width());
+
+                    const qreal maxW = pageSize.width() * 0.85;
+                    const qreal maxH = pageSize.height() * 0.70;
+
+                    qreal targetW = pageSize.width() * 0.40;
+
+                    // Tall widgets (a calculator, a spinner) must be capped by
+                    // height too, or 40% of the width runs off the page.
+                    if (aspect > 0 && targetW * aspect > maxH)
+                        targetW = maxH / aspect;
+
+                    if (nom.width() > 0) {
                         const qreal minW = qreal(nom.width()) * 0.80;
                         if (targetW < minW)
                             targetW = minW;
                     }
+
+                    targetW = qBound(qreal(60.0), targetW, maxW);
                     item->resize(targetW, targetW * aspect);
                 }
 
@@ -734,6 +754,7 @@ void UBBoardController::setupToolbar()
             this->mActiveScene->addItem(item);
             item->setPos(c);
             item->setData(Qt::UserRole, QString("shape:") + kind);
+            item->setSelected(true);   // show handles + delete chip right away (touch has no hover)
             UBDrawingController::drawingController()->setStylusTool(UBStylusTool::Selector);
         };
 
@@ -742,7 +763,7 @@ void UBBoardController::setupToolbar()
     {
         QToolButton *toolsBtn = new QToolButton(mMainWindow->boardToolBar);
         toolsBtn->setText(tr("Tools"));
-        toolsBtn->setIcon(QIcon(":/images/toolbar/tools.png"));
+        toolsBtn->setIcon(UBModernIcons::toolsIcon());
         toolsBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
         toolsBtn->setPopupMode(QToolButton::InstantPopup);
         toolsBtn->setAutoRaise(true);
@@ -751,64 +772,76 @@ void UBBoardController::setupToolbar()
         QMenu *toolsMenu = new QMenu(toolsBtn);
 
         // ----- Math submenu -----
-        QMenu *mathMenu = toolsMenu->addMenu(QIcon(":/images/toolbar/extraTool.png"), tr("Math"));
-        QAction *formAct   = mathMenu->addAction(QIcon(":/images/toolbar/extraTool.png"), tr("Formula (LaTeX)"));
-        QAction *ggbAct2   = mathMenu->addAction(QIcon(":/images/toolbar/tools.png"), tr("GeoGebra"));
-        QAction *gridAct   = mathMenu->addAction(QIcon(":/images/toolbar/background.png"), tr("Grapher / Grid"));
-        QAction *calcAct   = mathMenu->addAction(QIcon(":/images/toolbar/tools.png"), tr("Calculator"));
+        QMenu *mathMenu = toolsMenu->addMenu(UBModernIcons::mathToolsIcon(), tr("Math"));
+        QAction *gridAct   = mathMenu->addAction(tr("Grapher / Grid"));
+        QAction *calcAct   = mathMenu->addAction(tr("Calculator"));
+        QAction *formAct   = mathMenu->addAction(tr("Formula (LaTeX)"));
         QAction *numLnAct  = mathMenu->addAction(tr("Number Line"));
         QAction *uCirAct   = mathMenu->addAction(tr("Unit Circle"));
+        QAction *fracAct   = mathMenu->addAction(tr("Fraction Tiles"));
         QAction *spinAct   = mathMenu->addAction(tr("Spinner"));
         QAction *diceAct   = mathMenu->addAction(tr("Dice"));
+        mathMenu->addSeparator();
+        QAction *transAct  = mathMenu->addAction(tr("Transformations"));
+        QAction *scatAct   = mathMenu->addAction(tr("Scatter Plot (line of best fit)"));
+        mathMenu->addSeparator();
+        QMenu *calcusMenu = mathMenu->addMenu(tr("Calculus"));
+        QAction *slopeAct  = calcusMenu->addAction(tr("Slope Field"));
+        QAction *riemAct   = calcusMenu->addAction(tr("Riemann Sums"));
+        QAction *taylAct   = calcusMenu->addAction(tr("Taylor Polynomials"));
+        mathMenu->addSeparator();
+        QAction *ggbAct2   = mathMenu->addAction(tr("GeoGebra"));
 
-        connect(formAct,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("Formula.wgt"); });
-        connect(ggbAct2,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("GeoGebra.wgt"); });
         connect(gridAct,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("Grid.wgt"); });
-        connect(calcAct,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("SciCalc.wgt"); });
+        connect(calcAct,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("SciCalcPlus.wgt"); });
+        connect(formAct,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("Formula.wgt"); });
         connect(numLnAct, &QAction::triggered, this, [addAppWidget](){ addAppWidget("NumberLine.wgt"); });
         connect(uCirAct,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("UnitCircle.wgt"); });
+        connect(fracAct,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("FractionTiles.wgt"); });
         connect(spinAct,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("Spinner.wgt"); });
         connect(diceAct,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("DiceRoller.wgt"); });
+        connect(transAct, &QAction::triggered, this, [addAppWidget](){ addAppWidget("Transformations.wgt"); });
+        connect(scatAct,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("ScatterFit.wgt"); });
+        connect(slopeAct, &QAction::triggered, this, [addAppWidget](){ addAppWidget("SlopeField.wgt"); });
+        connect(riemAct,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("RiemannSum.wgt"); });
+        connect(taylAct,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("TaylorSeries.wgt"); });
+        connect(ggbAct2,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("GeoGebra.wgt"); });
 
         // ----- Geometry submenu -----
-        QMenu *geoMenu = toolsMenu->addMenu(QIcon(":/images/toolbar/tools.png"), tr("Geometry"));
+        QMenu *geoMenu = toolsMenu->addMenu(UBModernIcons::geometryIcon(), tr("Geometry"));
 
-        // Group 1: Interactive instruments
+        // Interactive instruments. Historic naming trap: addAxes() inserts
+        // Cartesian axes and addTriangle() is the physical set square, so the
+        // labels must NOT be swapped back.
+        QAction *rulerAct  = geoMenu->addAction(tr("Ruler"));
         QAction *protAct   = geoMenu->addAction(tr("Protractor"));
         QAction *compAct   = geoMenu->addAction(tr("Compass"));
-        QAction *rulerAct  = geoMenu->addAction(tr("Ruler"));
-        QAction *axesAct   = geoMenu->addAction(tr("Set Square"));
-        QAction *drTriAct  = geoMenu->addAction(tr("Drafting Triangle"));
+        QAction *drTriAct  = geoMenu->addAction(tr("Set Square"));
+        QAction *axesAct   = geoMenu->addAction(tr("Coordinate Axes"));
         geoMenu->addSeparator();
 
-        // Group 2: Quadrilaterals & basic shapes
-        QAction *rectAct    = geoMenu->addAction(tr("Rectangle"));
-        QAction *sqAct      = geoMenu->addAction(tr("Square"));
-        QAction *parallAct  = geoMenu->addAction(tr("Parallelogram"));
-        QAction *trapAct    = geoMenu->addAction(tr("Trapezoid"));
-        QAction *rhomAct    = geoMenu->addAction(tr("Rhombus"));
-        geoMenu->addSeparator();
-
-        // Group 3: Circles & ellipses
-        QAction *circAct    = geoMenu->addAction(tr("Circle"));
-        QAction *ellipAct   = geoMenu->addAction(tr("Ellipse"));
-        geoMenu->addSeparator();
-
-        // Group 4: Triangles
-        QAction *triAct     = geoMenu->addAction(tr("Triangle (general)"));
-        QAction *rTriAct    = geoMenu->addAction(tr("Right Triangle"));
-        QAction *eTriAct    = geoMenu->addAction(tr("Equilateral Triangle"));
-        QAction *iTriAct    = geoMenu->addAction(tr("Isosceles Triangle"));
-        geoMenu->addSeparator();
-
-        // Group 5: Regular polygons
-        QAction *pentAct    = geoMenu->addAction(tr("Pentagon"));
-        QAction *hexAct     = geoMenu->addAction(tr("Hexagon"));
-        QAction *octAct     = geoMenu->addAction(tr("Octagon"));
-        geoMenu->addSeparator();
-
-        // Group 6: Construction workspace
-        QAction *ggbGeoAct  = geoMenu->addAction(tr("GeoGebra Geometry (constructions)"));
+        // All insertable shapes bundled into one flyout, trimmed to what the
+        // curriculum uses (pentagon/octagon dropped).
+        QMenu *shapesMenu = geoMenu->addMenu(tr("Shapes"));
+        QAction *sqAct      = shapesMenu->addAction(tr("Square"));
+        QAction *rectAct    = shapesMenu->addAction(tr("Rectangle"));
+        QAction *parallAct  = shapesMenu->addAction(tr("Parallelogram"));
+        QAction *trapAct    = shapesMenu->addAction(tr("Trapezoid"));
+        QAction *rhomAct    = shapesMenu->addAction(tr("Rhombus"));
+        shapesMenu->addSeparator();
+        QAction *circAct    = shapesMenu->addAction(tr("Circle"));
+        QAction *ellipAct   = shapesMenu->addAction(tr("Ellipse"));
+        shapesMenu->addSeparator();
+        QAction *triAct     = shapesMenu->addAction(tr("Triangle (general)"));
+        QAction *rTriAct    = shapesMenu->addAction(tr("Right Triangle"));
+        QAction *eTriAct    = shapesMenu->addAction(tr("Equilateral Triangle"));
+        QAction *iTriAct    = shapesMenu->addAction(tr("Isosceles Triangle"));
+        shapesMenu->addSeparator();
+        QAction *hexAct     = shapesMenu->addAction(tr("Hexagon"));
+        // WistOpenboard fork: the GeoGebra Geometry entry was removed -- its
+        // construction UI needs far more room than a board widget window gives,
+        // so it was unusable at the size it opens at. GeoGebra proper is still
+        // in the Math submenu.
 
         connect(protAct,    &QAction::triggered, this, [this, viewCenterSceneM](){ if (mActiveScene) mActiveScene->addProtractor(viewCenterSceneM()); });
         connect(compAct,    &QAction::triggered, this, [this, viewCenterSceneM](){ if (mActiveScene) mActiveScene->addCompass(viewCenterSceneM()); });
@@ -830,11 +863,8 @@ void UBBoardController::setupToolbar()
         connect(eTriAct,    &QAction::triggered, this, [addShape](){ addShape("equilTriangle"); });
         connect(iTriAct,    &QAction::triggered, this, [addShape](){ addShape("isoscelesTriangle"); });
 
-        connect(pentAct,    &QAction::triggered, this, [addShape](){ addShape("pentagon"); });
         connect(hexAct,     &QAction::triggered, this, [addShape](){ addShape("hexagon"); });
-        connect(octAct,     &QAction::triggered, this, [addShape](){ addShape("octagon"); });
 
-        connect(ggbGeoAct,  &QAction::triggered, this, [addAppWidget](){ addAppWidget("GeoGebraGeo.wgt"); });
 
         // ----- Science submenu -----
         // Most science sites (PhET, MolView, Wolfram Alpha, BioDigital) refuse
@@ -842,7 +872,7 @@ void UBBoardController::setupToolbar()
         // the built-in Web app instead. Periodic Table previously iframed
         // ptable.com, but Cloudflare's JS challenge fails inside QtWebEngine,
         // so it now also opens LANL's plain-HTML periodic table in the Web app.
-        QMenu *sciMenu = toolsMenu->addMenu(QIcon(":/images/toolbar/tools.png"), tr("Science"));
+        QMenu *sciMenu = toolsMenu->addMenu(UBModernIcons::scienceIcon(), tr("Science"));
         QAction *ptAct       = sciMenu->addAction(tr("Periodic Table (widget)"));
         QAction *phetAct     = sciMenu->addAction(tr("PhET Simulations (physics, chem, bio)"));
         QAction *molAct      = sciMenu->addAction(tr("MolView (3D molecules)"));
@@ -868,13 +898,11 @@ void UBBoardController::setupToolbar()
         connect(climateAct, &QAction::triggered, this, [openInWeb](){ openInWeb("https://www.climate.gov/maps-data/dataset"); });
 
         // ----- Media submenu -----
-        QMenu *mediaMenu = toolsMenu->addMenu(QIcon(":/images/toolbar/tools.png"), tr("Media"));
-        QAction *timerAct = mediaMenu->addAction(tr("Timer"));
-        QAction *ggbAct   = mediaMenu->addAction(tr("GeoGebra"));
+        QMenu *mediaMenu = toolsMenu->addMenu(UBModernIcons::mediaIcon(), tr("Media"));
+        QAction *timerAct = mediaMenu->addAction(tr("Timer / Stopwatch"));
         QAction *ytAct    = mediaMenu->addAction(tr("YouTube"));
 
-        connect(timerAct, &QAction::triggered, this, [addAppWidget](){ addAppWidget("Stopwatch.wgt"); });
-        connect(ggbAct,   &QAction::triggered, this, [addAppWidget](){ addAppWidget("GeoGebra.wgt"); });
+        connect(timerAct, &QAction::triggered, this, [addAppWidget](){ addAppWidget("Timer.wgt"); });
         connect(ytAct,    &QAction::triggered, this, [addAppWidget](){ addAppWidget("YouTube.wgt"); });
 
         toolsBtn->setMenu(toolsMenu);

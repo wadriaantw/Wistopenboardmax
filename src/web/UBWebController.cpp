@@ -68,6 +68,7 @@
 #include "network/UBNetworkAccessManager.h"
 
 #include "gui/UBMainWindow.h"
+#include "gui/UBModernIcons.h"
 #include "gui/UBWebToolsPalette.h"
 #include "gui/UBKeyboardPalette.h"
 #include "gui/UBStartupHintsPalette.h"
@@ -131,7 +132,18 @@ UBWebController::UBWebController(UBMainWindow* mainWindow)
     }
 
     QString userAgent = UBSettings::settings()->alternativeUserAgent->get().toString();
-    userAgent = userAgent.arg(p1).arg(p2);
+
+    // The default template is now placeholder-free; only substitute when a
+    // custom template still uses %1/%2 for the OS and architecture.
+    if (userAgent.contains(QLatin1String("%1")))
+        userAgent = userAgent.arg(p1).arg(p2);
+
+    // WistOpenboard fork: apply the clean UA to the WHOLE profile, not just
+    // per-domain request headers. Sites read navigator.userAgent from JS --
+    // YouTube's embed player does exactly that for its unsupported-browser
+    // check, and the QtWebEngine token in the default UA fails it (error 152)
+    // no matter what the HTTP header says.
+    mWebProfile->setHttpUserAgent(userAgent);
 
     mInterceptor = new UBUserAgentInterceptor(userAgent.toUtf8(), mWebProfile);
 
@@ -608,7 +620,7 @@ void UBWebController::webBrowserInstance()
                 // Clear-ink button on the web toolbar.
                 QToolButton *clearBtn = new QToolButton(mMainWindow->webToolBar);
                 clearBtn->setText(tr("Clear Ink"));
-                clearBtn->setIcon(QIcon(":/images/toolbar/clearPage.png"));
+                clearBtn->setIcon(UBModernIcons::clearIcon());
                 clearBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
                 clearBtn->setAutoRaise(true);
                 clearBtn->setToolTip(tr("Erase all ink on this page"));
@@ -629,7 +641,7 @@ void UBWebController::webBrowserInstance()
             {
                 QToolButton *shortcutsBtn = new QToolButton(mMainWindow->webToolBar);
                 shortcutsBtn->setText(tr("Shortcuts"));
-                shortcutsBtn->setIcon(QIcon(":/images/toolbar/bookmarks.png"));
+                shortcutsBtn->setIcon(UBModernIcons::bookmarkIcon());
                 shortcutsBtn->setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
                 shortcutsBtn->setPopupMode(QToolButton::InstantPopup);
                 shortcutsBtn->setAutoRaise(true);
@@ -1456,5 +1468,25 @@ void UBUserAgentInterceptor::interceptRequest(QWebEngineUrlRequestInfo &info)
     if (mDomainMatcher.match(url.host()).hasMatch())
     {
         info.setHttpHeader("User-Agent", mAlternativeUserAgent);
+    }
+
+    // WistOpenboard fork: YouTube's embed player refuses playback with
+    // "error 153" when the embedding page sends no Referer -- exactly the
+    // situation of board widgets, whose pages load from file://. Inject a
+    // localhost Referer for YouTube requests originating from local pages:
+    // YouTube accepts loopback referrers (verified: the embed reaches the
+    // "playing" state), and unlike claiming a youtube.com or fabricated
+    // domain it is truthful for a local application, so it does not trip the
+    // spoofing detection behind "error 152". Requests from real web pages
+    // (Web mode) keep their genuine headers.
+    const QString host = url.host();
+    const QString fpScheme = info.firstPartyUrl().scheme();
+    if (fpScheme != QLatin1String("http") && fpScheme != QLatin1String("https")
+        && (host.endsWith(QLatin1String("youtube.com"))
+            || host.endsWith(QLatin1String("youtube-nocookie.com"))
+            || host.endsWith(QLatin1String("googlevideo.com"))
+            || host.endsWith(QLatin1String("ytimg.com"))))
+    {
+        info.setHttpHeader("Referer", "http://127.0.0.1/");
     }
 }

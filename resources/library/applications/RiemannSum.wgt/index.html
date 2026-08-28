@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Riemann Sums</title>
+  <style>
+    html,body { margin:0; padding:0; width:100%; height:100%; background:#fff; font-family: system-ui, sans-serif; }
+    #root { display:flex; flex-direction:column; height:100%; box-sizing:border-box; }
+    .panel { padding:5px 8px; background:#f4f4f4; border-bottom:1px solid #ddd; display:flex; flex-wrap:wrap; gap:6px; font-size:11px; align-items:center; }
+    .panel label { display:flex; align-items:center; gap:3px; }
+    .panel input[type="number"] { width:48px; padding:1px 3px; font-size:11px; }
+    .panel input[type="text"] { padding:1px 4px; font-size:11px; }
+    .panel select { padding:1px; font-size:11px; }
+    button { padding:2px 8px; font-size:11px; cursor:pointer; }
+    #readout { padding:4px 8px; background:#eef4fb; border-bottom:1px solid #cde; font-size:12px; display:flex; gap:18px; flex-wrap:wrap; }
+    #readout b { font-family:monospace; }
+    #canvasWrap { flex:1; position:relative; }
+    canvas { position:absolute; inset:0; width:100%; height:100%; }
+    .insertBtn { background:#2a7; color:#fff; border:1px solid #2a7; font-weight:bold; padding:3px 12px; }
+    .insertBtn:hover { background:#3b8; }
+    #footer { padding:4px 8px; background:#f0f0f0; border-top:1px solid #ddd; display:flex; justify-content:flex-end; gap:6px; }
+    .nBtn { width:26px; font-weight:bold; }
+  </style>
+</head>
+<body>
+<div id="root">
+  <div class="panel">
+    <label>f(x) = <input id="expr" type="text" value="x^2" style="width:110px"></label>
+    <label>a <input id="a" type="number" value="0" step="0.5"></label>
+    <label>b <input id="b" type="number" value="4" step="0.5"></label>
+    <label>n
+      <button class="nBtn" id="nMinus">−</button>
+      <input id="n" type="number" value="8" min="1" max="200" style="width:40px">
+      <button class="nBtn" id="nPlus">+</button>
+    </label>
+    <label>Method
+      <select id="method">
+        <option value="left">Left endpoint</option>
+        <option value="right">Right endpoint</option>
+        <option value="mid" selected>Midpoint</option>
+        <option value="trap">Trapezoid</option>
+      </select>
+    </label>
+    <button id="redraw">Redraw</button>
+  </div>
+  <div id="readout">
+    <span>Sum ≈ <b id="sumVal">—</b></span>
+    <span>∫ f dx ≈ <b id="exactVal">—</b></span>
+    <span>Error: <b id="errVal">—</b></span>
+  </div>
+  <div id="canvasWrap"><canvas id="c"></canvas></div>
+  <div id="footer">
+    <button class="insertBtn" id="insertBtn">Insert ↑ on board</button>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('c');
+let ctx = cv.getContext('2d');
+
+function compileExpr(expr) {
+  let js = String(expr || '').trim();
+  if (!js) return null;
+  js = js.replace(/\^/g, '**');
+  js = js.replace(/(\d)([a-zA-Z(])/g, '$1*$2');
+  js = js.replace(/\)(\d|[a-zA-Z(])/g, ')*$1');
+  const names = ['sin','cos','tan','asin','acos','atan','sinh','cosh','tanh',
+                 'sqrt','cbrt','abs','exp','log','log2','log10','floor','ceil','round','sign'];
+  for (const n of names) js = js.replace(new RegExp('\\b'+n+'\\b','g'), 'Math.'+n);
+  js = js.replace(/\bpi\b/gi, 'Math.PI');
+  try { return new Function('x', 'return ' + js + ';'); }
+  catch (e) { return null; }
+}
+
+let fn = compileExpr($('expr').value);
+const safe = x => { try { const y = fn(x); return isFinite(y) ? y : NaN; } catch (_) { return NaN; } };
+
+// Composite Simpson on a fine grid = the "exact" reference
+function integral(a, b) {
+  const N = 2000;
+  const h = (b - a) / N;
+  let s = safe(a) + safe(b);
+  for (let i = 1; i < N; i++) s += safe(a + i*h) * (i % 2 ? 4 : 2);
+  return s * h / 3;
+}
+
+function riemann(a, b, n, method) {
+  const dx = (b - a) / n;
+  let s = 0;
+  for (let i = 0; i < n; i++) {
+    const x0 = a + i*dx, x1 = x0 + dx;
+    if (method === 'left')  s += safe(x0) * dx;
+    if (method === 'right') s += safe(x1) * dx;
+    if (method === 'mid')   s += safe((x0+x1)/2) * dx;
+    if (method === 'trap')  s += (safe(x0) + safe(x1)) / 2 * dx;
+  }
+  return s;
+}
+
+function fmt(x) {
+  if (!isFinite(x)) return '—';
+  return Math.abs(x) < 1e-10 ? '0' : (+x.toPrecision(6)).toString();
+}
+
+function draw() {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  ctx.clearRect(0, 0, W, H);
+  if (!fn) return;
+
+  const a = +$('a').value, b = +$('b').value;
+  const n = Math.max(1, Math.min(200, Math.round(+$('n').value)));
+  const method = $('method').value;
+  if (!(b > a)) return;
+
+  // y-range from samples
+  let ymin = 0, ymax = 0;
+  for (let i = 0; i <= 400; i++) {
+    const y = safe(a + (b-a)*i/400);
+    if (isFinite(y)) { ymin = Math.min(ymin, y); ymax = Math.max(ymax, y); }
+  }
+  if (ymax === ymin) { ymax = ymin + 1; }
+  const ypad = (ymax - ymin) * 0.12;
+  ymin -= ypad; ymax += ypad;
+
+  const padL = 46, padR = 20, padT = 14, padB = 30;
+  const xspan = (b - a) * 1.12;
+  const x0 = a - (b - a) * 0.06;
+  const X = x => padL + (x - x0) / xspan * (W - padL - padR);
+  const Y = y => padT + (ymax - y) / (ymax - ymin) * (H - padT - padB);
+
+  const dx = (b - a) / n;
+
+  // shaded rectangles / trapezoids
+  ctx.lineWidth = 1;
+  for (let i = 0; i < n; i++) {
+    const xl = a + i*dx, xr = xl + dx;
+    ctx.fillStyle = 'rgba(74,114,176,0.25)';
+    ctx.strokeStyle = 'rgba(40,70,120,0.8)';
+    ctx.beginPath();
+    if (method === 'trap') {
+      const yl = safe(xl), yr = safe(xr);
+      if (!isFinite(yl) || !isFinite(yr)) continue;
+      ctx.moveTo(X(xl), Y(0));
+      ctx.lineTo(X(xl), Y(yl));
+      ctx.lineTo(X(xr), Y(yr));
+      ctx.lineTo(X(xr), Y(0));
+    } else {
+      const xs = method === 'left' ? xl : method === 'right' ? xr : (xl+xr)/2;
+      const yv = safe(xs);
+      if (!isFinite(yv)) continue;
+      ctx.rect(X(xl), Math.min(Y(0), Y(yv)), X(xr)-X(xl), Math.abs(Y(yv)-Y(0)));
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // sample-point dot
+    if (method !== 'trap') {
+      const xs = method === 'left' ? xl : method === 'right' ? xr : (xl+xr)/2;
+      const yv = safe(xs);
+      if (isFinite(yv)) {
+        ctx.fillStyle = '#1a3a6b';
+        ctx.beginPath(); ctx.arc(X(xs), Y(yv), 2.5, 0, Math.PI*2); ctx.fill();
+      }
+    }
+  }
+
+  // axes
+  ctx.strokeStyle = '#333'; ctx.lineWidth = 1.2;
+  ctx.beginPath(); ctx.moveTo(padL - 20, Y(0)); ctx.lineTo(W - 6, Y(0)); ctx.stroke();
+  if (x0 <= 0 && x0 + xspan >= 0) {
+    ctx.beginPath(); ctx.moveTo(X(0), padT - 6); ctx.lineTo(X(0), H - padB + 6); ctx.stroke();
+  }
+
+  // x tick labels at partition points (thin out if many)
+  ctx.fillStyle = '#333'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+  const every = n > 20 ? Math.ceil(n / 10) : 1;
+  for (let i = 0; i <= n; i += every) {
+    const x = a + i*dx;
+    ctx.beginPath(); ctx.moveTo(X(x), Y(0)-3); ctx.lineTo(X(x), Y(0)+3);
+    ctx.strokeStyle = '#333'; ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.fillText(String(+x.toFixed(3)), X(x), Y(0) + 14);
+  }
+  // y labels: min / max nice values
+  ctx.textAlign = 'right';
+  const yTicks = 4;
+  for (let i = 0; i <= yTicks; i++) {
+    const y = ymin + (ymax - ymin) * i / yTicks;
+    ctx.fillText(String(+y.toFixed(2)), padL - 6, Y(y) + 3);
+  }
+
+  // the curve on top
+  ctx.strokeStyle = '#cc0000'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  let started = false;
+  const samples = 600;
+  for (let i = 0; i <= samples; i++) {
+    const x = x0 + xspan * i / samples;
+    const y = safe(x);
+    if (!isFinite(y)) { started = false; continue; }
+    if (!started) { ctx.moveTo(X(x), Y(y)); started = true; }
+    else ctx.lineTo(X(x), Y(y));
+  }
+  ctx.stroke();
+
+  // readout
+  const s = riemann(a, b, n, method);
+  const ex = integral(a, b);
+  $('sumVal').textContent = fmt(s);
+  $('exactVal').textContent = fmt(ex);
+  $('errVal').textContent = fmt(Math.abs(s - ex));
+}
+
+$('nMinus').addEventListener('click', () => { $('n').value = Math.max(1, +$('n').value - 1); draw(); });
+$('nPlus').addEventListener('click', () => { $('n').value = Math.min(200, +$('n').value + 1); draw(); });
+$('expr').addEventListener('input', () => { const f = compileExpr($('expr').value); if (f) { fn = f; draw(); } });
+['a','b','n','method'].forEach(id => {
+  $(id).addEventListener('change', draw);
+  $(id).addEventListener('input', draw);
+});
+$('redraw').addEventListener('click', () => { fn = compileExpr($('expr').value); draw(); });
+
+function insertOnBoard() {
+  const dpr = window.devicePixelRatio || 1;
+  const scale = 2;
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, Math.floor(cv.width / dpr * scale));
+  out.height = Math.max(1, Math.floor(cv.height / dpr * scale));
+  const octx = out.getContext('2d');
+  octx.fillStyle = '#fff'; octx.fillRect(0, 0, out.width, out.height);
+  octx.drawImage(cv, 0, 0, cv.width, cv.height, 0, 0, out.width, out.height);
+  const dataUrl = out.toDataURL('image/png');
+  if (window.sankore && window.sankore.addObject) {
+    window.sankore.addObject(dataUrl, 0, 0, 0, 0, false);
+  }
+}
+$('insertBtn').addEventListener('click', insertOnBoard);
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.max(1, Math.floor(r.width * dpr));
+  cv.height = Math.max(1, Math.floor(r.height * dpr));
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+new ResizeObserver(resize).observe($('canvasWrap'));
+window.addEventListener('resize', resize);
+window.addEventListener('load', resize);
+resize();
+setTimeout(resize, 100);
+setTimeout(resize, 500);
+</script>
+</body>
+</html>

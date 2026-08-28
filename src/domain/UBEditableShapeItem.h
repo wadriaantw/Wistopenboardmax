@@ -13,6 +13,10 @@
 #include <QPen>
 #include <QBrush>
 
+// WistOpenboard fork: shared diagnostic sink (see the .cpp).
+class QString;
+void ubShapeDebugLog(const QString& line);
+
 class UBEditableShapeItem : public QGraphicsObject
 {
     Q_OBJECT
@@ -45,17 +49,19 @@ protected:
     void hoverEnterEvent(QGraphicsSceneHoverEvent *e) override;
     void hoverLeaveEvent(QGraphicsSceneHoverEvent *e) override;
     void hoverMoveEvent(QGraphicsSceneHoverEvent *e) override;
+    void keyPressEvent(QKeyEvent *e) override;
     QVariant itemChange(GraphicsItemChange change, const QVariant &value) override;
 
 private:
-    static constexpr qreal HANDLE_SIZE = 14.0;
+    static constexpr qreal HANDLE_SIZE = 18.0;   // finger-sized
     static constexpr qreal ROT_OFFSET  = 28.0;
 
     enum {
         H_None      = -1,
         H_Body      = -1000,
         H_Rotation  = -1001,
-        H_Delete    = -1002
+        H_Delete    = -1002,
+        H_Scale     = -1003     // uniform resize grip (polygons)
     };
 
     Kind        mKind;
@@ -66,11 +72,19 @@ private:
 
     int         mActiveHandle = H_None;
     QPointF     mPressScenePos;
+    QPointF     mScaleCentre;      // fixed point of a uniform resize
+    qreal       mScaleStartDist{0};
     QPolygonF   mVerticesAtPress;
 
+    void           removeSelfWithUndo();
     QList<QPointF> handlePositions() const;
     QPointF        rotationHandlePos() const;
-    QRectF         deleteChipRect() const;
+    QRectF         deleteChipRect() const;      // drawn size
+    QRectF         deleteChipHitRect() const;   // forgiving touch/click target
+    bool           hasScaleGrip() const;        // polygons only
+    QRectF         scaleGripRect() const;       // drawn size
+    QRectF         scaleGripHitRect() const;    // forgiving target
+    QRectF         handleHitRect(const QPointF& centre) const;
     int            handleAt(const QPointF &localPos) const;
     QRectF         localBBox() const;
 };

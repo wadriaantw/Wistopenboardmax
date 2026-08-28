@@ -29,6 +29,16 @@
 
 #include "UBWidgetUniboardAPI.h"
 
+#include <QNetworkAccessManager>
+#include <QNetworkReply>
+#include <QNetworkRequest>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonArray>
+#include <QUrlQuery>
+
+#include "web/UBYouTubeShim.h"
+
 #include <QDomDocument>
 #include <QtGui>
 
@@ -788,5 +798,108 @@ QObject* UBDatastoreAPI::document() const
 }
 
 
+// --- WistOpenboard fork: native YouTube search for widgets ---------------
 
+// ytInitialData's structure shifts regularly, so instead of a fixed path we
+// scan the whole tree for "videoRenderer" objects. Depth-first, capped.
+static void collectVideoRenderers(const QJsonValue& node, QJsonArray& out, int limit)
+{
+    if (out.size() >= limit)
+        return;
 
+    if (node.isObject())
+    {
+        const QJsonObject obj = node.toObject();
+
+        if (obj.contains(QStringLiteral("videoRenderer")))
+        {
+            const QJsonObject v = obj.value(QStringLiteral("videoRenderer")).toObject();
+            const QString id = v.value(QStringLiteral("videoId")).toString();
+
+            if (id.length() == 11)
+            {
+                QJsonObject entry;
+                entry[QStringLiteral("id")] = id;
+                entry[QStringLiteral("title")] = v.value(QStringLiteral("title")).toObject()
+                        .value(QStringLiteral("runs")).toArray()
+                        .at(0).toObject().value(QStringLiteral("text")).toString();
+                entry[QStringLiteral("author")] = v.value(QStringLiteral("ownerText")).toObject()
+                        .value(QStringLiteral("runs")).toArray()
+                        .at(0).toObject().value(QStringLiteral("text")).toString();
+                entry[QStringLiteral("length")] = v.value(QStringLiteral("lengthText")).toObject()
+                        .value(QStringLiteral("simpleText")).toString();
+                out.append(entry);
+            }
+        }
+
+        for (auto it = obj.begin(); it != obj.end() && out.size() < limit; ++it)
+            collectVideoRenderers(it.value(), out, limit);
+    }
+    else if (node.isArray())
+    {
+        const QJsonArray arr = node.toArray();
+
+        for (const QJsonValue& child : arr)
+        {
+            if (out.size() >= limit)
+                break;
+            collectVideoRenderers(child, out, limit);
+        }
+    }
+}
+
+void UBWidgetUniboardAPI::youtubeSearch(const QString& query)
+{
+    if (!mNam)
+        mNam = new QNetworkAccessManager(this);
+
+    QUrl url(QStringLiteral("https://www.youtube.com/results"));
+    QUrlQuery q;
+    q.addQueryItem(QStringLiteral("search_query"), query);
+    q.addQueryItem(QStringLiteral("hl"), QStringLiteral("en"));
+    url.setQuery(q);
+
+    QNetworkRequest request(url);
+    request.setRawHeader("User-Agent",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36");
+    request.setRawHeader("Accept-Language", "en-US,en;q=0.8");
+    // Pre-accepted consent cookies; without them some regions get an
+    // interstitial instead of results.
+    request.setRawHeader("Cookie", "CONSENT=YES+cb; SOCS=CAI");
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+
+    QNetworkReply* reply = mNam->get(request);
+
+    connect(reply, &QNetworkReply::finished, this, [this, reply, query]() {
+        reply->deleteLater();
+
+        QJsonArray results;
+        const QByteArray body = reply->readAll();
+
+        int start = body.indexOf("ytInitialData");
+
+        if (start >= 0)
+        {
+            start = body.indexOf('{', start);
+            const int end = body.indexOf(";</script>", start);
+
+            if (start >= 0 && end > start)
+            {
+                const QJsonDocument doc = QJsonDocument::fromJson(body.mid(start, end - start));
+
+                if (doc.isObject())
+                    collectVideoRenderers(doc.object(), results, 20);
+            }
+        }
+
+        emit youtubeSearchResult(query,
+                QString::fromUtf8(QJsonDocument(results).toJson(QJsonDocument::Compact)));
+    });
+}
+
+QString UBWidgetUniboardAPI::youtubePlayerUrl(const QString& videoId)
+{
+    return UBYouTubeShim::playerUrl(videoId);
+}

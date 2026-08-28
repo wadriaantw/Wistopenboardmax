@@ -31,6 +31,8 @@
 #include "UBActionPalette.h"
 
 #include <QApplication>
+
+#include "core/UBTheme.h"
 #include <QGestureEvent>
 #include <QTapAndHoldGesture>
 
@@ -293,7 +295,15 @@ UBActionPaletteButton::UBActionPaletteButton(QAction* action, QWidget * parent)
 {
     setIconSize(QSize(32, 32));
     setDefaultAction(action);
-    setStyleSheet(QString("QToolButton {color: white; font-weight: bold; font-family: Arial; background-color: transparent; border: none}"));
+    // WistOpenboard fork: the checked pill must live HERE -- this widget-level
+    // stylesheet overrides the app-wide css, so a :checked rule there never won.
+    setStyleSheet(QString(
+        "QToolButton { color: %1; font-weight: bold; font-family: Arial;"
+        " background-color: transparent; border: 1px solid transparent; border-radius: 8px; }"
+        "QToolButton:hover { background-color: %2; }"
+        "QToolButton:checked { background-color: %3; border: 1px solid %4; }")
+        .arg(UBTheme::hex(UBTheme::ink()), UBTheme::hex(UBTheme::surfaceMuted()),
+             UBTheme::hex(UBTheme::surfacePressed()), UBTheme::hex(UBTheme::ink())));
 
     setFocusPolicy(Qt::NoFocus);
 

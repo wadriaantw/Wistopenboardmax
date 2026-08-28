@@ -103,7 +103,10 @@ QColor UBSettings::documentSizeMarkColorLightBackground = QColor(241, 241, 241);
 // WistOpenboard fork: light default at static-init time; re-assigned from
 // UBTheme once settings are loaded (see init) so dark mode reaches palettes.
 QColor UBSettings::paletteColor = QColor(255, 255, 255, 246);
-QColor UBSettings::opaquePaletteColor = QColor(66, 66, 66, 200);
+// WistOpenboard fork: themed in init() like paletteColor; the desktop
+// palettes read this one, and the legacy dark grey made the ink-coloured
+// icon set invisible.
+QColor UBSettings::opaquePaletteColor = QColor(255, 255, 255, 235);
 
 QColor UBSettings::documentViewLightColor = QColor(241, 241, 241);
 
@@ -305,6 +308,8 @@ void UBSettings::init()
     // a lazy settings read from in here deadlocks (see UBTheme.h).
     UBTheme::initialize(appDarkTheme->get().toBool());
     paletteColor = UBTheme::paletteBackground();
+    opaquePaletteColor = UBTheme::surface();
+    opaquePaletteColor.setAlpha(235);
     boardSimplifyPenStrokesThresholdAngle = new UBSetting(this, "Board", "SimplifyPenStrokesThresholdAngle", 2);
     boardSimplifyPenStrokesThresholdWidthDifference = new UBSetting(this, "Board", "SimplifyPenStrokesThresholdWidthDifference", 2.0);
 
@@ -383,7 +388,18 @@ void UBSettings::init()
 
     webHomePage = new UBSetting(this, "Web", "Homepage", QString("https://www.google.com/"));
     webSearchEngineUrl = new UBSetting(this, "Web", "SearchEngineUrl", "https://www.qwant.com/?q=%1");
-    alternativeUserAgent = new UBSetting(this, "Web", "AlternativeUserAgent", "Mozilla/5.0 (%1; %2; rv:91.0) Gecko/20100101 Firefox/91.0");
+    // WistOpenboard fork: was Firefox/91 (2021). YouTube treats an outdated
+    // UA -- or a Firefox UA on what is detectably a Chromium engine -- as
+    // spoofing and refuses embed playback (error 152). Claim exactly what the
+    // engine is: modern Chrome on modern Windows, no QtWebEngine token.
+#if defined(Q_OS_OSX)
+    const QString defaultUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+#elif defined(Q_OS_LINUX)
+    const QString defaultUserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+#else
+    const QString defaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36";
+#endif
+    alternativeUserAgent = new UBSetting(this, "Web", "AlternativeUserAgent", defaultUserAgent);
     alternativeUserAgentDomains = new UBSetting(this, "Web", "AlternativeUserAgentDomains", "google.*,youtube.*,youtu.be,ytimg.com,googlevideo.com");
     webCookieAutoDelete = new UBSetting(this, "Web", "CookieAutoDelete", false);
     webCookieKeepDomains = new UBSetting(this, "Web", "CookieKeepDomains", QStringList());

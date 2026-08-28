@@ -135,7 +135,7 @@ QToolBar QToolButton
     padding: 0px;
     border: none;
     border-radius: 6px;
-    height: 58px;
+    height: 48px;
     background: transparent;
     color: #3A3A38;
 }
@@ -153,7 +153,7 @@ QToolBar QToolButton:pressed
     padding: 0px;
     border: none;
     border-radius: 6px;
-    height: 58px;
+    height: 48px;
     background: #EAEAE8;
 }
 
@@ -258,6 +258,22 @@ QToolButton#ubActionPaletteButton
 {
     margin: 0px;
     color: #3A3A38;
+    border-radius: 8px;
+    border: 1px solid transparent;
+}
+
+/* WistOpenboard: the active tool gets a visible pill -- the painted line
+   icons have no separate "on" artwork, so without this nothing marked the
+   selected tool at all. */
+QToolButton#ubActionPaletteButton:checked
+{
+    background: #EAEAE8;
+    border: 1px solid #3A3A38;
+}
+
+QToolButton#ubActionPaletteButton:hover
+{
+    background: #F2F2F0;
 }
 
 QFrame#newDocumentFolderFrame,
@@ -562,4 +578,9 @@ QToolTip
     color: #3A3A38;
     border: 1px solid #D0D0CC;
     padding: 4px 8px;
+}
+
+QTabBar::close-button
+{
+    image: url(:/images/tabClose.svg);
 }

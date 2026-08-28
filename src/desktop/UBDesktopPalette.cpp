@@ -41,6 +41,7 @@
 #include "board/UBDrawingController.h"
 
 #include "gui/UBMainWindow.h"
+#include "gui/UBModernIcons.h"
 
 #include "core/memcheck.h"
 
@@ -52,7 +53,7 @@ UBDesktopPalette::UBDesktopPalette(QWidget *parent, UBRightPalette* _rightPalett
 {
     QList<QAction*> actions;
 
-    mActionUniboard = new QAction(QIcon(":/images/toolbar/board.png"), tr("Show OpenBoard"), this);
+    mActionUniboard = new QAction(UBModernIcons::boardIcon(), tr("Show OpenBoard"), this);
     connect(mActionUniboard, SIGNAL(triggered()), this, SIGNAL(uniboardClick()));
     actions << mActionUniboard;
 
@@ -65,25 +66,22 @@ UBDesktopPalette::UBDesktopPalette(QWidget *parent, UBRightPalette* _rightPalett
     actions << UBApplication::mainWindow->actionRedo;
     actions << UBApplication::mainWindow->actionSnapToShape; // snap-to-fit toggle (shares board setting)
 
-    mActionMath = new QAction(QIcon(":/images/toolbar/extraTool.png"), tr("Math Tools"), this);
+    mActionMath = new QAction(UBModernIcons::mathToolsIcon(), tr("Math Tools"), this);
     connect(mActionMath, SIGNAL(triggered()), this, SIGNAL(mathClick()));
     actions << mActionMath;
 
     if (UBPlatformUtils::hasVirtualKeyboard())
         actions << UBApplication::mainWindow->actionVirtualKeyboard;
 
-    mActionCustomSelect = new QAction(QIcon(":/images/toolbar/captureArea.png"), tr("Capture Part of the Screen"), this);
+    mActionCustomSelect = new QAction(UBModernIcons::captureAreaIcon(), tr("Capture Part of the Screen"), this);
     connect(mActionCustomSelect, SIGNAL(triggered()), this, SIGNAL(customClick()));
     actions << mActionCustomSelect;
 
-    mDisplaySelectAction = new QAction(QIcon(":/images/toolbar/captureScreen.png"), tr("Capture the Screen"), this);
+    mDisplaySelectAction = new QAction(UBModernIcons::captureScreenIcon(), tr("Capture the Screen"), this);
     connect(mDisplaySelectAction, SIGNAL(triggered()), this, SIGNAL(screenClick()));
     actions << mDisplaySelectAction;
 
-    QIcon showHideIcon;
-    showHideIcon.addPixmap(QPixmap(":/images/toolbar/eyeOpened.png"), QIcon::Normal , QIcon::On);
-    showHideIcon.addPixmap(QPixmap(":/images/toolbar/eyeClosed.png"), QIcon::Normal , QIcon::Off);
-    mShowHideAction = new QAction(showHideIcon, "", this);
+    mShowHideAction = new QAction(UBModernIcons::showHideIcon(), "", this);
     mShowHideAction->setCheckable(true);
 
     connect(mShowHideAction, SIGNAL(triggered(bool)), this, SLOT(showHideClick(bool)));
@@ -93,8 +91,7 @@ UBDesktopPalette::UBDesktopPalette(QWidget *parent, UBRightPalette* _rightPalett
     // Uses the left-pointing arrow icon ("previous") to suggest "tuck to the
     // left edge". Tooltip and action text both say "Minimize toolbar" so the
     // tooltip-on-hover makes the purpose obvious.
-    QIcon minimizeIcon(":/images/toolbar/previous.png");
-    mMinimizeAction = new QAction(minimizeIcon, tr("Minimize toolbar"), this);
+    mMinimizeAction = new QAction(UBModernIcons::chevronLeftIcon(), tr("Minimize toolbar"), this);
     mMinimizeAction->setToolTip(tr("Minimize toolbar"));
     connect(mMinimizeAction, &QAction::triggered, this, [this](){
         minimizeMe(eMinimizedLocation_Left);
@@ -102,14 +99,14 @@ UBDesktopPalette::UBDesktopPalette(QWidget *parent, UBRightPalette* _rightPalett
     actions << mMinimizeAction;
 
     setActions(actions);
-    setButtonIconSize(QSize(42, 42));
+    // WistOpenboard fork: 34px like the board dock -- the 42px buttons made the
+    // desktop strip taller than the content it overlays.
+    setButtonIconSize(QSize(34, 34));
 
     adjustSizeAndPosition();
 
     //  Maximize action (shown when palette is in minimized state).
-    QIcon maximizeIcon;
-    maximizeIcon.addPixmap(QPixmap(":/images/toolbar/stylusTab.png"), QIcon::Normal, QIcon::On);
-    mMaximizeAction = new QAction(maximizeIcon, tr("Show the stylus palette"), this);
+    mMaximizeAction = new QAction(UBModernIcons::chevronRightIcon(), tr("Show the stylus palette"), this);
     connect(mMaximizeAction, SIGNAL(triggered()), this, SLOT(maximizeMe()));
     connect(this, SIGNAL(maximizeStart()), this, SLOT(maximizeMe()));
     connect(this, SIGNAL(minimizeStart(eMinimizedLocation)), this, SLOT(minimizeMe(eMinimizedLocation)));

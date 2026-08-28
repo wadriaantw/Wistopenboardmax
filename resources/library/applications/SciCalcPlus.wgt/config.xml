@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<widget xmlns="http://www.w3.org/ns/widgets"
+        id="http://wistopenboard/widgets/scicalcplus"
+        version="1.0"
+        width="330"
+        height="520">
+  <name>Scientific Calculator</name>
+  <description>Classroom scientific calculator: natural display, exact fractions, powers and roots, trigonometry, logs and memory.</description>
+  <author>WistOpenboard</author>
+  <content src="index.html"/>
+</widget>

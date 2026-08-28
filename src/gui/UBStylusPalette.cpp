@@ -413,8 +413,8 @@ UBStylusPalette::UBStylusPalette(QWidget *parent, Qt::Orientation orient)
     UBApplication::mainWindow->actionRedo->setProperty("ungrouped", true);
     actions << UBApplication::mainWindow->actionMarker;
     actions << UBApplication::mainWindow->actionSelector;
-    actions << UBApplication::mainWindow->actionPlay;
-
+    // WistOpenboard fork: Play (interact mode) removed from the dock -- it does
+    // nothing visible in the everyday teaching flow. Hand (pan) stays.
     actions << UBApplication::mainWindow->actionHand;
     actions << UBApplication::mainWindow->actionZoomIn;
     actions << UBApplication::mainWindow->actionZoomOut;

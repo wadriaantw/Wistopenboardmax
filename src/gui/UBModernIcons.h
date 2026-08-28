@@ -15,10 +15,28 @@
 #define UBMODERNICONS_H_
 
 class UBMainWindow;
+class QIcon;
 
 namespace UBModernIcons
 {
     void apply(UBMainWindow* mainWindow);
+
+    // For the hand-built toolbar buttons that are not QActions.
+    QIcon zoomInIcon();
+    QIcon zoomOutIcon();
+    QIcon toolsIcon();
+    QIcon boardIcon();
+    QIcon mathToolsIcon();
+    QIcon captureAreaIcon();
+    QIcon captureScreenIcon();
+    QIcon showHideIcon();       // eye open (On) / closed (Off)
+    QIcon chevronLeftIcon();
+    QIcon chevronRightIcon();
+    QIcon clearIcon();          // trash can (Clear Ink on the web toolbar)
+    QIcon geometryIcon();       // drawing compass (Geometry submenu)
+    QIcon scienceIcon();        // flask (Science submenu)
+    QIcon mediaIcon();          // play card (Media submenu)
+    QIcon bookmarkIcon();       // amber ribbon (Shortcuts dropdown)
 }
 
 #endif /* UBMODERNICONS_H_ */

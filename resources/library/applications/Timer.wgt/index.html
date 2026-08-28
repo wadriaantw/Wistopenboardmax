@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Timer</title>
+  <style>
+    html,body { margin:0; padding:0; width:100%; height:100%; background:#fff; font-family: system-ui, sans-serif; overflow:hidden; }
+    #root { display:flex; flex-direction:column; height:100%; box-sizing:border-box; }
+    .tabs { display:flex; background:#e8e8e8; border-bottom:1px solid #ccc; }
+    .tab { padding:6px 16px; cursor:pointer; font-size:13px; border-right:1px solid #ccc; user-select:none; }
+    .tab.active { background:#fff; font-weight:bold; }
+    #display { flex:1; display:flex; align-items:center; justify-content:center; font-variant-numeric:tabular-nums;
+               font-weight:700; color:#2b2b28; letter-spacing:0.02em; transition:background 0.3s; user-select:none; }
+    #display.done { background:#ffe3e0; color:#c22; animation: flash 0.8s infinite alternate; }
+    @keyframes flash { from { background:#ffe3e0; } to { background:#ffb3ac; } }
+    #controls { display:flex; flex-wrap:wrap; gap:8px; padding:10px 12px; background:#f4f4f4; border-top:1px solid #ddd; justify-content:center; }
+    button { padding:8px 18px; font-size:14px; cursor:pointer; border-radius:8px; border:1px solid #ccc; background:#fff; }
+    button:active { background:#eee; }
+    .primary { background:#2a7; color:#fff; border-color:#2a7; font-weight:bold; min-width:90px; }
+    .primary.pause { background:#e09b1a; border-color:#e09b1a; }
+    .preset { padding:6px 12px; font-size:12px; }
+    #presets { display:flex; gap:6px; padding:0 12px 10px; background:#f4f4f4; justify-content:center; flex-wrap:wrap; }
+  </style>
+</head>
+<body>
+<div id="root">
+  <div class="tabs">
+    <div class="tab active" data-mode="stopwatch">Stopwatch</div>
+    <div class="tab" data-mode="countdown">Countdown</div>
+  </div>
+  <div id="display">00:00</div>
+  <div id="controls">
+    <button class="primary" id="startBtn">Start</button>
+    <button id="resetBtn">Reset</button>
+  </div>
+  <div id="presets" style="display:none">
+    <button class="preset" data-min="1">1 min</button>
+    <button class="preset" data-min="2">2 min</button>
+    <button class="preset" data-min="5">5 min</button>
+    <button class="preset" data-min="10">10 min</button>
+    <button class="preset" data-add="60">+1 min</button>
+    <button class="preset" data-add="30">+30 s</button>
+    <button class="preset" data-add="10">+10 s</button>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+let mode = 'stopwatch';
+let running = false;
+let baseElapsed = 0;      // ms accumulated before the current run
+let startedAt = 0;        // Date.now() when started
+let countdownSet = 120000; // ms selected for countdown (default 2 min)
+let doneFired = false;
+
+function now() { return Date.now(); }
+function elapsed() { return baseElapsed + (running ? now() - startedAt : 0); }
+
+function fmt(ms) {
+  ms = Math.max(0, ms);
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  const mm = String(m).padStart(2, '0'), ss = String(s).padStart(2, '0');
+  if (h > 0) return h + ':' + mm + ':' + ss;
+  // show tenths on the stopwatch under a minute
+  if (mode === 'stopwatch' && total < 60) {
+    const t = Math.floor((ms % 1000) / 100);
+    return mm + ':' + ss + '.' + t;
+  }
+  return mm + ':' + ss;
+}
+
+function beep() {
+  try {
+    const ac = new (window.AudioContext || window.webkitAudioContext)();
+    const seq = [0, 0.25, 0.5];
+    seq.forEach(t0 => {
+      const o = ac.createOscillator(), g = ac.createGain();
+      o.type = 'sine'; o.frequency.value = 880;
+      g.gain.setValueAtTime(0.0001, ac.currentTime + t0);
+      g.gain.exponentialRampToValueAtTime(0.4, ac.currentTime + t0 + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + t0 + 0.2);
+      o.connect(g); g.connect(ac.destination);
+      o.start(ac.currentTime + t0); o.stop(ac.currentTime + t0 + 0.22);
+    });
+  } catch (_) {}
+}
+
+function render() {
+  const d = $('display');
+  if (mode === 'stopwatch') {
+    d.textContent = fmt(elapsed());
+    d.classList.remove('done');
+  } else {
+    const left = countdownSet - elapsed();
+    d.textContent = fmt(left);
+    if (left <= 0) {
+      d.classList.add('done');
+      if (!doneFired) { doneFired = true; beep(); }
+      if (running) { running = false; baseElapsed = countdownSet; updateStartBtn(); }
+    } else {
+      d.classList.remove('done');
+    }
+  }
+}
+
+function updateStartBtn() {
+  const b = $('startBtn');
+  b.textContent = running ? 'Pause' : (elapsed() > 0 ? 'Resume' : 'Start');
+  b.classList.toggle('pause', running);
+}
+
+$('startBtn').addEventListener('click', () => {
+  if (running) { baseElapsed = elapsed(); running = false; }
+  else {
+    if (mode === 'countdown' && countdownSet - elapsed() <= 0) { baseElapsed = 0; doneFired = false; }
+    startedAt = now(); running = true;
+  }
+  updateStartBtn();
+  render();
+});
+$('resetBtn').addEventListener('click', () => {
+  running = false; baseElapsed = 0; doneFired = false;
+  updateStartBtn(); render();
+});
+
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    mode = t.dataset.mode;
+    running = false; baseElapsed = 0; doneFired = false;
+    $('presets').style.display = mode === 'countdown' ? 'flex' : 'none';
+    updateStartBtn(); render();
+  });
+});
+
+document.querySelectorAll('.preset').forEach(b => {
+  b.addEventListener('click', () => {
+    if (b.dataset.min) {
+      countdownSet = (+b.dataset.min) * 60000;
+      baseElapsed = 0; running = false; doneFired = false;
+    } else {
+      countdownSet += (+b.dataset.add) * 1000;
+      doneFired = false;
+    }
+    updateStartBtn(); render();
+  });
+});
+
+// scale the digits to the widget size
+function fitFont() {
+  const d = $('display');
+  const w = d.clientWidth, h = d.clientHeight;
+  d.style.fontSize = Math.min(w / 3.6, h * 0.72) + 'px';
+}
+new ResizeObserver(fitFont).observe($('display'));
+window.addEventListener('resize', fitFont);
+
+setInterval(render, 100);
+fitFont();
+render();
+updateStartBtn();
+</script>
+</body>
+</html>

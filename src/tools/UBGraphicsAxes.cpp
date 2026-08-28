@@ -419,6 +419,19 @@ void UBGraphicsAxes::mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
         QGraphicsItem::mouseReleaseEvent(event);
     }
 
+    // WistOpenboard fork: finger touch generates no hover events, so a tap
+    // must also reveal the buttons (mirrors hoverEnterEvent).
+    UBStylusTool::Enum tool = (UBStylusTool::Enum)UBDrawingController::drawingController()->stylusTool();
+    if (isVisible() && (tool == UBStylusTool::Selector || tool == UBStylusTool::Play))
+    {
+        mCloseSvgItem->setParentItem(this);
+        mNumbersSvgItem->setParentItem(this);
+        mShowButtons = true;
+        mCloseSvgItem->setVisible(true);
+        mNumbersSvgItem->setVisible(true);
+        update();
+    }
+
     if (scene())
         scene()->setModified(true);
 }

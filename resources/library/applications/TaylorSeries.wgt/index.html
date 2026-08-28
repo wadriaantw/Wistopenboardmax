@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Taylor Polynomials</title>
+  <style>
+    html,body { margin:0; padding:0; width:100%; height:100%; background:#fff; font-family: system-ui, sans-serif; }
+    #root { display:flex; flex-direction:column; height:100%; box-sizing:border-box; }
+    .panel { padding:5px 8px; background:#f4f4f4; border-bottom:1px solid #ddd; display:flex; flex-wrap:wrap; gap:8px; font-size:11px; align-items:center; }
+    .panel label { display:flex; align-items:center; gap:4px; }
+    .panel input[type="number"] { width:48px; padding:1px 3px; font-size:11px; }
+    .panel select { padding:1px; font-size:11px; }
+    button { padding:2px 8px; font-size:11px; cursor:pointer; }
+    #degWrap { display:flex; align-items:center; gap:5px; }
+    #deg { width:130px; }
+    #degLabel { font-weight:bold; font-size:13px; min-width:46px; }
+    #formula { padding:5px 8px; background:#fdf6ec; border-bottom:1px solid #ecd; font-size:12px; font-family:Georgia, serif; overflow-x:auto; white-space:nowrap; }
+    #canvasWrap { flex:1; position:relative; }
+    canvas { position:absolute; inset:0; width:100%; height:100%; }
+    .insertBtn { background:#2a7; color:#fff; border:1px solid #2a7; font-weight:bold; padding:3px 12px; }
+    .insertBtn:hover { background:#3b8; }
+    #footer { padding:4px 8px; background:#f0f0f0; border-top:1px solid #ddd; display:flex; justify-content:space-between; gap:6px; align-items:center; font-size:11px; }
+    .legend { display:flex; gap:14px; }
+    .legend span { display:flex; align-items:center; gap:4px; }
+    .swatch { display:inline-block; width:16px; height:3px; }
+  </style>
+</head>
+<body>
+<div id="root">
+  <div class="panel">
+    <label>f(x) =
+      <select id="func">
+        <option value="sin">sin x</option>
+        <option value="cos">cos x</option>
+        <option value="exp">eˣ</option>
+        <option value="ln">ln x</option>
+        <option value="geom">1/(1−x)</option>
+        <option value="inv">1/x</option>
+        <option value="sqrt">√x</option>
+        <option value="atan">arctan x</option>
+      </select>
+    </label>
+    <label>center a = <input id="center" type="number" value="0" step="0.5"></label>
+    <div id="degWrap">
+      <span>degree</span>
+      <input id="deg" type="range" min="0" max="15" value="1" step="1">
+      <span id="degLabel">n = 1</span>
+    </div>
+    <label>X: <input id="xmin" type="number" value="-7">..<input id="xmax" type="number" value="7"></label>
+  </div>
+  <div id="formula">—</div>
+  <div id="canvasWrap"><canvas id="c"></canvas></div>
+  <div id="footer">
+    <div class="legend">
+      <span><span class="swatch" style="background:#222"></span>f(x)</span>
+      <span><span class="swatch" style="background:#cc0000"></span>T<sub>n</sub>(x)</span>
+    </div>
+    <button class="insertBtn" id="insertBtn">Insert ↑ on board</button>
+  </div>
+</div>
+<script>
+const $ = id => document.getElementById(id);
+const cv = $('c');
+let ctx = cv.getContext('2d');
+
+// Each preset: evaluate f, domain guard, closed-form Taylor coefficient
+// c_n = f^(n)(a)/n!, and constraints on the center.
+const FUNCS = {
+  sin: {
+    f: Math.sin, minA: -Infinity,
+    coeff: (n, a) => { let f = 1; for (let i = 2; i <= n; i++) f *= i; return Math.sin(a + n*Math.PI/2) / f; }
+  },
+  cos: {
+    f: Math.cos, minA: -Infinity,
+    coeff: (n, a) => { let f = 1; for (let i = 2; i <= n; i++) f *= i; return Math.cos(a + n*Math.PI/2) / f; }
+  },
+  exp: {
+    f: Math.exp, minA: -Infinity,
+    coeff: (n, a) => { let f = 1; for (let i = 2; i <= n; i++) f *= i; return Math.exp(a) / f; }
+  },
+  ln: {
+    f: x => x > 0 ? Math.log(x) : NaN, minA: 1e-6, defaultA: 1,
+    // c_0 = ln a ; c_n = (-1)^(n-1) / (n a^n)
+    coeff: (n, a) => n === 0 ? Math.log(a) : (n % 2 ? 1 : -1) / (n * Math.pow(a, n))
+  },
+  geom: {
+    f: x => Math.abs(1 - x) < 1e-9 ? NaN : 1/(1 - x), minA: -Infinity, notA: 1,
+    // c_n = 1/(1-a)^(n+1)
+    coeff: (n, a) => 1 / Math.pow(1 - a, n + 1)
+  },
+  inv: {
+    f: x => Math.abs(x) < 1e-9 ? NaN : 1/x, minA: -Infinity, notA: 0, defaultA: 1,
+    // c_n = (-1)^n / a^(n+1)
+    coeff: (n, a) => (n % 2 ? -1 : 1) / Math.pow(a, n + 1)
+  },
+  sqrt: {
+    f: x => x >= 0 ? Math.sqrt(x) : NaN, minA: 1e-6, defaultA: 1,
+    // f^(n)(a) = (1/2)(1/2-1)...(1/2-n+1) a^(1/2-n) ; c_n = that / n!
+    coeff: (n, a) => {
+      if (n === 0) return Math.sqrt(a);
+      let prod = 1, fact = 1;
+      for (let i = 0; i < n; i++) prod *= (0.5 - i);
+      for (let i = 2; i <= n; i++) fact *= i;
+      return prod * Math.pow(a, 0.5 - n) / fact;
+    }
+  },
+  atan: {
+    f: Math.atan, minA: 0, maxA: 0, fixedA: 0,
+    // Maclaurin only: x - x^3/3 + x^5/5 - ...
+    coeff: (n, a) => {
+      if (n % 2 === 0) return 0;
+      const m = (n - 1) / 2;
+      return (m % 2 ? -1 : 1) / n;
+    }
+  }
+};
+
+function currentSetup() {
+  const key = $('func').value;
+  const F = FUNCS[key];
+  let a = +$('center').value;
+  if (F.fixedA !== undefined) a = F.fixedA;
+  if (F.minA !== undefined && F.minA > -Infinity && a < F.minA) a = F.defaultA !== undefined ? F.defaultA : F.minA;
+  if (F.notA !== undefined && Math.abs(a - F.notA) < 1e-9) a = F.notA + 1;
+  return { F, a, n: +$('deg').value };
+}
+
+function taylorAt(F, a, n) {
+  const cs = [];
+  for (let k = 0; k <= n; k++) cs.push(F.coeff(k, a));
+  return x => {
+    let s = 0, p = 1;
+    const d = x - a;
+    for (let k = 0; k <= n; k++) { s += cs[k] * p; p *= d; }
+    return s;
+  };
+}
+
+function fmtNum(v) {
+  if (Math.abs(v) < 1e-12) return '0';
+  const r = +v.toPrecision(4);
+  return String(r);
+}
+
+function formulaText(F, a, n) {
+  const parts = [];
+  for (let k = 0; k <= n; k++) {
+    const c = F.coeff(k, a);
+    if (Math.abs(c) < 1e-14) continue;
+    const dx = a === 0 ? 'x' : '(x − ' + fmtNum(a) + ')';
+    let term;
+    if (k === 0) term = fmtNum(c);
+    else {
+      const mag = Math.abs(Math.abs(c) - 1) < 1e-12 ? '' : fmtNum(Math.abs(c));
+      term = (c < 0 ? '− ' : (parts.length ? '+ ' : '')) + mag + dx + (k > 1 ? supNum(k) : '');
+      parts.push(term);
+      if (parts.length >= 6 && k < n) { parts.push('+ …'); break; }
+      continue;
+    }
+    parts.push((parts.length && c >= 0 ? '+ ' : '') + term);
+    if (parts.length >= 6 && k < n) { parts.push('+ …'); break; }
+  }
+  return 'T' + subNum(n) + '(x) = ' + (parts.length ? parts.join(' ') : '0');
+}
+const SUP = {'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹'};
+const SUB = {'0':'₀','1':'₁','2':'₂','3':'₃','4':'₄','5':'₅','6':'₆','7':'₇','8':'₈','9':'₉'};
+function supNum(k) { return String(k).split('').map(c => SUP[c]).join(''); }
+function subNum(k) { return String(k).split('').map(c => SUB[c]).join(''); }
+
+function draw() {
+  const W = cv.clientWidth, H = cv.clientHeight;
+  ctx.clearRect(0, 0, W, H);
+  const { F, a, n } = currentSetup();
+  $('degLabel').textContent = 'n = ' + n;
+  $('formula').textContent = formulaText(F, a, n);
+
+  const xmin = +$('xmin').value, xmax = +$('xmax').value;
+  if (!(xmax > xmin)) return;
+
+  // y-range from f over the window (clamped)
+  let ymin = Infinity, ymax = -Infinity;
+  for (let i = 0; i <= 400; i++) {
+    const y = F.f(xmin + (xmax-xmin)*i/400);
+    if (isFinite(y)) { ymin = Math.min(ymin, y); ymax = Math.max(ymax, y); }
+  }
+  if (!isFinite(ymin)) { ymin = -2; ymax = 2; }
+  ymin = Math.max(ymin, -8); ymax = Math.min(ymax, 8);
+  if (ymin > -1) ymin = Math.min(ymin, -1);
+  if (ymax < 1) ymax = Math.max(ymax, 1);
+  const ypad = (ymax - ymin) * 0.1;
+  ymin -= ypad; ymax += ypad;
+
+  const pad = 26;
+  const X = x => pad + (x - xmin) / (xmax - xmin) * (W - pad*2);
+  const Y = y => pad + (ymax - y) / (ymax - ymin) * (H - pad*2);
+
+  // grid at integers
+  ctx.strokeStyle = '#eee'; ctx.lineWidth = 1;
+  for (let x = Math.ceil(xmin); x <= xmax; x++) {
+    ctx.beginPath(); ctx.moveTo(X(x), pad); ctx.lineTo(X(x), H-pad); ctx.stroke();
+  }
+  for (let y = Math.ceil(ymin); y <= ymax; y++) {
+    ctx.beginPath(); ctx.moveTo(pad, Y(y)); ctx.lineTo(W-pad, Y(y)); ctx.stroke();
+  }
+  // axes
+  ctx.strokeStyle = '#999'; ctx.lineWidth = 1.2;
+  if (ymin <= 0 && ymax >= 0) { ctx.beginPath(); ctx.moveTo(pad, Y(0)); ctx.lineTo(W-pad, Y(0)); ctx.stroke(); }
+  if (xmin <= 0 && xmax >= 0) { ctx.beginPath(); ctx.moveTo(X(0), pad); ctx.lineTo(X(0), H-pad); ctx.stroke(); }
+  // integer labels on x-axis
+  ctx.fillStyle = '#888'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+  for (let x = Math.ceil(xmin); x <= xmax; x++) {
+    if (x === 0) continue;
+    ctx.fillText(String(x), X(x), (ymin <= 0 && ymax >= 0 ? Y(0) : H-pad) + 12);
+  }
+  ctx.textAlign = 'right';
+  for (let y = Math.ceil(ymin); y <= ymax; y++) {
+    if (y === 0) continue;
+    ctx.fillText(String(y), (xmin <= 0 && xmax >= 0 ? X(0) : pad) - 4, Y(y) + 3);
+  }
+
+  const plot = (g, color, dash) => {
+    ctx.save();
+    ctx.beginPath(); ctx.rect(pad, pad, W-pad*2, H-pad*2); ctx.clip();
+    ctx.strokeStyle = color; ctx.lineWidth = 2;
+    ctx.setLineDash(dash || []);
+    ctx.beginPath();
+    let started = false;
+    const samples = 700;
+    for (let i = 0; i <= samples; i++) {
+      const x = xmin + (xmax - xmin) * i / samples;
+      let y;
+      try { y = g(x); } catch (_) { y = NaN; }
+      if (!isFinite(y) || Math.abs(y) > 1e6) { started = false; continue; }
+      if (!started) { ctx.moveTo(X(x), Y(y)); started = true; }
+      else ctx.lineTo(X(x), Y(y));
+    }
+    ctx.stroke();
+    ctx.restore();
+  };
+
+  plot(F.f, '#222');
+  plot(taylorAt(F, a, n), '#cc0000', [7,4]);
+
+  // center marker
+  const fa = F.f(a);
+  if (isFinite(fa)) {
+    ctx.fillStyle = '#cc0000';
+    ctx.beginPath(); ctx.arc(X(a), Y(fa), 4, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#333'; ctx.font = '11px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('a = ' + fmtNum(a), X(a), Y(fa) - 10);
+  }
+}
+
+$('func').addEventListener('change', () => {
+  const F = FUNCS[$('func').value];
+  if (F.fixedA !== undefined) { $('center').value = F.fixedA; $('center').disabled = true; }
+  else {
+    $('center').disabled = false;
+    const a = +$('center').value;
+    if (F.minA !== undefined && F.minA > -Infinity && a < F.minA) $('center').value = F.defaultA !== undefined ? F.defaultA : 1;
+    if (F.notA !== undefined && Math.abs(a - F.notA) < 1e-9) $('center').value = F.defaultA !== undefined ? F.defaultA : 0;
+  }
+  draw();
+});
+['center','deg','xmin','xmax'].forEach(id => {
+  $(id).addEventListener('input', draw);
+  $(id).addEventListener('change', draw);
+});
+
+function insertOnBoard() {
+  const dpr = window.devicePixelRatio || 1;
+  const scale = 2;
+  const out = document.createElement('canvas');
+  out.width = Math.max(1, Math.floor(cv.width / dpr * scale));
+  out.height = Math.max(1, Math.floor(cv.height / dpr * scale));
+  const octx = out.getContext('2d');
+  octx.fillStyle = '#fff'; octx.fillRect(0, 0, out.width, out.height);
+  octx.drawImage(cv, 0, 0, cv.width, cv.height, 0, 0, out.width, out.height);
+  const dataUrl = out.toDataURL('image/png');
+  if (window.sankore && window.sankore.addObject) {
+    window.sankore.addObject(dataUrl, 0, 0, 0, 0, false);
+  }
+}
+$('insertBtn').addEventListener('click', insertOnBoard);
+
+function resize() {
+  const dpr = window.devicePixelRatio || 1;
+  const r = cv.getBoundingClientRect();
+  cv.width = Math.max(1, Math.floor(r.width * dpr));
+  cv.height = Math.max(1, Math.floor(r.height * dpr));
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  draw();
+}
+new ResizeObserver(resize).observe($('canvasWrap'));
+window.addEventListener('resize', resize);
+window.addEventListener('load', resize);
+resize();
+setTimeout(resize, 100);
+setTimeout(resize, 500);
+</script>
+</body>
+</html>

@@ -423,6 +423,16 @@ void UBGraphicsCompass::mouseReleaseEvent(QGraphicsSceneMouseEvent *event)
     mResizing = false;
     mDrawing = false;
 
+    // WistOpenboard fork: finger touch generates no hover events, so a tap
+    // must also reveal the buttons (mirrors hoverEnterEvent).
+    if (isVisible())
+    {
+        mShowButtons = true;
+        mCloseSvgItem->setVisible(true);
+        mResizeSvgItem->setVisible(true);
+        update();
+    }
+
     if (scene())
         scene()->setModified(true);
 }

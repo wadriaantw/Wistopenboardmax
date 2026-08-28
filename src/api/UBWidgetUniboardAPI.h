@@ -41,6 +41,7 @@ class UBGraphicsWidgetItem;
 class UBGraphicsW3CWidgetItem;
 
 class UBWidgetMessageAPI;
+class QNetworkAccessManager;
 class UBDatastoreAPI;
 class UBDocumentDatastoreAPI;
 
@@ -262,8 +263,27 @@ public:
         bool ProcessDropEvent(QGraphicsSceneDragDropEvent *);
         bool isDropableData(const QMimeData *pMimeData) const;
 
+        /**
+         * WistOpenboard fork: search YouTube on behalf of a widget. Every
+         * public keyless search API is dead, and widget pages (file://)
+         * cannot fetch youtube.com themselves because of CORS. The host
+         * fetches the results page, extracts ytInitialData, and answers via
+         * the youtubeSearchResult signal with a compact JSON array of
+         * {id, title, author, length}.
+         */
+        void youtubeSearch(const QString& query);
+
+        /**
+         * WistOpenboard fork: URL of the localhost player shim for a video
+         * id (see UBYouTubeShim). Empty string when unavailable. Widgets
+         * receive the return value via QWebChannel's callback argument.
+         */
+        QString youtubePlayerUrl(const QString& videoId);
+
 signals:
         void dropDataChanged(const QString& data);
+
+        void youtubeSearchResult(const QString& query, const QString& resultsJson);
 
 private slots:
         void onDownloadFinished(bool pSuccess, sDownloadFileDesc desc, QByteArray pData);
@@ -295,6 +315,7 @@ private:
         QList<int> webDownloadIds;
         bool mProcessFileDrop;
         QString mDropData;
+        QNetworkAccessManager* mNam = nullptr;
 };
 
 
