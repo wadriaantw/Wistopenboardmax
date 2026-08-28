@@ -1,0 +1,134 @@
+# Builds the macOS app and packages a .dmg on GitHub's Apple hardware, so a
+# Mac build can be produced without owning a Mac.
+#
+# The toolchain mirrors what OpenBoard.pro's macx block documents:
+#   * Qt 5.15.2 (Intel-only), so the app is built x86_64 and runs under
+#     Rosetta on Apple Silicon
+#   * Homebrew at /usr/local for poppler / openssl / ffmpeg
+#   * QuaZip 1.3 built against Qt5 into ~/quazip-qt5-install
+#   * Xpdf 3.04 headers in ~/Xpdf
+#   * Qt's .prl files patched to drop the AGL framework Apple removed
+#
+# macos-13 is deliberate: it is the last Intel runner, so Homebrew installs
+# x86_64 libraries into /usr/local natively and no Rosetta dance is needed.
+
+name: macOS DMG
+
+on:
+  workflow_dispatch:        # run it by hand from the Actions tab
+  push:
+    tags:
+      - 'v*'                # and automatically for a release tag
+
+jobs:
+  build:
+    runs-on: macos-13
+    timeout-minutes: 120
+
+    steps:
+      - name: Check out the fork
+        uses: actions/checkout@v4
+
+      - name: Install Qt 5.15.2 with WebEngine
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '5.15.2'
+          host: mac
+          target: desktop
+          arch: clang_64
+          modules: 'qtwebengine'
+          cache: true
+
+      - name: Install Homebrew libraries
+        run: |
+          set -x
+          brew update || true
+          # poppler and openssl are required; ffmpeg provides the av* libs.
+          brew install poppler openssl@3 pkg-config || true
+          # The .pro asks for ffmpeg@4; fall back to current ffmpeg if that
+          # formula has been retired.
+          brew install ffmpeg@4 || brew install ffmpeg || true
+          # openssl@3 is keg-only; expose it where the .pro expects it.
+          if [ ! -e /usr/local/opt/openssl ]; then
+            ln -sfn "$(brew --prefix openssl@3)" /usr/local/opt/openssl || true
+          fi
+          if [ ! -e /usr/local/opt/ffmpeg@4 ] && [ -d "$(brew --prefix ffmpeg)" ]; then
+            ln -sfn "$(brew --prefix ffmpeg)" /usr/local/opt/ffmpeg@4 || true
+          fi
+
+      - name: Build QuaZip 1.3 against Qt5
+        run: |
+          set -euxo pipefail
+          git clone --depth 1 --branch v1.3 https://github.com/stachenov/quazip.git /tmp/quazip
+          cmake -S /tmp/quazip -B /tmp/quazip/build \
+            -DCMAKE_INSTALL_PREFIX="$HOME/quazip-qt5-install" \
+            -DCMAKE_PREFIX_PATH="$QT_ROOT_DIR" \
+            -DQUAZIP_QT_MAJOR_VERSION=5 \
+            -DCMAKE_OSX_ARCHITECTURES=x86_64 \
+            -DBUILD_SHARED_LIBS=ON
+          cmake --build /tmp/quazip/build --parallel
+          cmake --install /tmp/quazip/build
+
+      - name: Fetch Xpdf 3.04 headers
+        run: |
+          set -euxo pipefail
+          mkdir -p "$HOME/Xpdf"
+          curl -fsSL -o /tmp/xpdf.tar.gz https://dl.xpdfreader.com/old/xpdf-3.04.tar.gz
+          tar -xzf /tmp/xpdf.tar.gz -C /tmp
+          cp -R /tmp/xpdf-3.04/* "$HOME/Xpdf"/
+
+      - name: Drop the AGL framework from Qt's .prl files
+        run: |
+          # Qt 5.15.2 still references AGL, which Apple removed in 10.14.
+          # qmake reads .prl files after the .pro is evaluated, so this cannot
+          # be fixed from inside OpenBoard.pro.
+          find "$QT_ROOT_DIR/lib" -name "Qt*.prl" -print0 \
+            | xargs -0 sed -i.bak 's/-framework AGL //g' || true
+
+      - name: Fetch third-party sources expected by the .pro
+        run: |
+          set -euxo pipefail
+          # OpenBoard.pro includes ../OpenBoard-ThirdParty/libs.pri
+          git clone --depth 1 https://github.com/OpenBoard-org/OpenBoard-ThirdParty.git ../OpenBoard-ThirdParty
+
+      - name: qmake and build
+        run: |
+          set -euxo pipefail
+          qmake OpenBoard.pro CONFIG+=release
+          make -j"$(sysctl -n hw.ncpu)"
+
+      - name: Locate the built app
+        id: findapp
+        run: |
+          APP="$(find . -name 'OpenBoard.app' -maxdepth 6 -type d | head -1)"
+          test -n "$APP"
+          echo "app=$APP" >> "$GITHUB_OUTPUT"
+          echo "Found $APP"
+
+      - name: Bundle Qt into the app
+        run: |
+          macdeployqt "${{ steps.findapp.outputs.app }}" -verbose=1 || true
+
+      - name: Package the DMG
+        run: |
+          set -euxo pipefail
+          STAGE=/tmp/dmg
+          rm -rf "$STAGE" && mkdir -p "$STAGE"
+          cp -R "${{ steps.findapp.outputs.app }}" "$STAGE"/
+          ln -s /Applications "$STAGE/Applications"
+          hdiutil create -volname "WistOpenboard" -srcfolder "$STAGE" \
+            -ov -format UDZO WistOpenboard.dmg
+          ls -lh WistOpenboard.dmg
+
+      - name: Upload the DMG
+        uses: actions/upload-artifact@v4
+        with:
+          name: WistOpenboard-macOS-dmg
+          path: WistOpenboard.dmg
+          if-no-files-found: error
+
+      - name: Attach the DMG to the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: WistOpenboard.dmg
