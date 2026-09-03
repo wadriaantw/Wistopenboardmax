@@ -337,7 +337,15 @@ class UBSettings : public QObject
         UBSetting* webUseExternalBrowser;
         UBSetting* webShowPageImmediatelyOnMirroredScreen;
 
+        // WistOpenboard fork: reopen the document tabs from last session.
+        UBSetting* appRestoreDocumentTabs;
+        UBSetting* lastOpenDocumentPaths;
+
         UBSetting* webHomePage;
+        // WistOpenboard fork: Web mode reopens the tabs it had last time.
+        UBSetting* webRestoreTabs;
+        UBSetting* webLastOpenTabs;
+        UBSetting* webLastOpenTabIndex;
         UBSetting* webSearchEngineUrl;
         UBSetting* alternativeUserAgent;
         UBSetting* alternativeUserAgentDomains;

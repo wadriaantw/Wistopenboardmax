@@ -74,6 +74,12 @@ public:
     // pixmaps in drawBackground().
     void setContinuousScroll(bool enabled);
     bool isContinuousScroll() const { return mContinuousScroll; }
+
+    // WistOpenboard fork: page turn for continuous mode. Promotes the target
+    // page the same way scrolling does, then puts its top at the top of the
+    // viewport. Returns false when not in continuous mode (caller falls back
+    // to the single-page path).
+    bool goToPage(int target);
     // Recompute the scrollable strip after the active page changes by any other
     // route (page buttons, thumbnail click, document switch).
     void refreshContinuousLayout();
@@ -275,6 +281,25 @@ private:
 
     // finger-pan / pinch-zoom state
     bool mIsTouchPanning;
+
+    // WistOpenboard fork: kinetic scrolling. The pan follows the finger 1:1;
+    // on release, if the finger was still moving, the page keeps going and
+    // coasts to a stop. Velocity is in viewport pixels per millisecond.
+    QElapsedTimer mPanClock;
+    QPointF mPanVelocity;
+    QTimer* mFlingTimer = nullptr;
+    QElapsedTimer mFlingClock;       // real time between coast ticks
+    // Recent samples (viewport pos, ms since pan clock start): the release
+    // velocity is taken over the last ~100 ms, not from the final event,
+    // which is often a slow one as the finger lifts.
+    QList<QPair<QPointF, qint64>> mPanSamples;
+    void startFling();
+    void stopFling();
+
+public:
+    void stopKineticScroll() { stopFling(); }
+
+private:
     QPointF mTouchPanStart;
     int mTouchPanId;                 // finger id being tracked for pan (-1 = none)
     QPointF mTouchPanAnchor;         // fixed start anchor for movement-deadzone check

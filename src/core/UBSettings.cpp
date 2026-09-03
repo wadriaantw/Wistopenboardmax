@@ -386,7 +386,13 @@ void UBSettings::init()
 
     webShowPageImmediatelyOnMirroredScreen = new UBSetting(this, "Web", "ShowPageImediatelyOnMirroredScreen", defaultShowPageImmediatelyOnMirroredScreen);
 
+    appRestoreDocumentTabs = new UBSetting(this, "App", "RestoreDocumentTabs", true);
+    lastOpenDocumentPaths = new UBSetting(this, "App", "LastOpenDocumentPaths", QStringList());
+
     webHomePage = new UBSetting(this, "Web", "Homepage", QString("https://www.google.com/"));
+    webRestoreTabs = new UBSetting(this, "Web", "RestoreTabs", true);
+    webLastOpenTabs = new UBSetting(this, "Web", "LastOpenTabs", QStringList());
+    webLastOpenTabIndex = new UBSetting(this, "Web", "LastOpenTabIndex", 0);
     webSearchEngineUrl = new UBSetting(this, "Web", "SearchEngineUrl", "https://www.qwant.com/?q=%1");
     // WistOpenboard fork: was Firefox/91 (2021). YouTube treats an outdated
     // UA -- or a Firefox UA on what is detectably a Chromium engine -- as

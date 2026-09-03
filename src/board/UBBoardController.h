@@ -332,6 +332,14 @@ class UBBoardController : public UBDocumentContainer
         int indexOfOpenDocument(std::shared_ptr<UBDocumentProxy> proxy) const;
         void registerOpenDocument(std::shared_ptr<UBDocumentProxy> proxy);
         void prepareTabForDocument(std::shared_ptr<UBDocumentProxy> proxy);
+
+        // Session restore for the document tab bar.
+        // Captured at startup BEFORE the resumed document registers its own
+        // tab -- that registration saves the list, which would otherwise
+        // overwrite the very set being restored.
+        QStringList mPendingRestoreTabPaths;
+        void saveOpenDocumentTabs();
+        void restoreOpenDocumentTabs();
         void replaceActiveTabDocument(std::shared_ptr<UBDocumentProxy> proxy);
         QUndoStack* undoStackForProxy(std::shared_ptr<UBDocumentProxy> proxy) const;
         void rebindUndoStack(QUndoStack* newStack);
@@ -339,6 +347,7 @@ class UBBoardController : public UBDocumentContainer
         void syncCurrentTab();
 
         QList<UBOpenDocument> mOpenDocuments;
+        QAction* mToolsMenuAction = nullptr;   // the Tools dropdown on the toolbar
         bool mTabSyncInProgress = false;
         bool mOpenNextInNewTab = false;   // "+" was pressed → next open is a new tab
         bool mReplacingActiveTab = false; // current open is replacing the active tab's doc

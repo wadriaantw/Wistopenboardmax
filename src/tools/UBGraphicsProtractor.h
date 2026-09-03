@@ -108,6 +108,7 @@ class UBGraphicsProtractor : public UBAbstractDrawRuler, public QGraphicsEllipse
 
         // Members
         QPointF mPreviousMousePos;
+        QPointF mPreviousScenePos;   // resize reference, immune to our own scaling
         Tool    mCurrentTool;
         bool    mShowButtons;
         qreal   mCurrentAngle;

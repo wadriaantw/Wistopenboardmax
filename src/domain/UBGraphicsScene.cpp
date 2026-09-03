@@ -1336,8 +1336,98 @@ bool UBGraphicsScene::trySnapStrokeToShape()
     return true;
 }
 
+bool UBGraphicsScene::sStrokeEraserMode = false;
+
 void UBGraphicsScene::eraseLineTo(const QPointF &pEndPoint, const qreal &pWidth)
 {
+    // WistOpenboard fork: whole-stroke erasing. Anything the eraser sweeps
+    // over goes as a complete stroke -- the way a teacher clears a wrong
+    // digit rather than sanding it away. Reuses the same removed-items
+    // bookkeeping as the ordinary eraser, so undo brings the stroke back.
+    if (sStrokeEraserMode)
+    {
+        const QLineF line(mPreviousPoint, pEndPoint);
+        mPreviousPoint = pEndPoint;
+
+        const QPolygonF eraserPolygon = UBGeometryUtils::lineToPolygon(line, pWidth);
+        QPainterPath eraserPath;
+        eraserPath.addPolygon(eraserPolygon);
+
+        QList<QGraphicsItem*> hits = items(eraserPolygon.boundingRect(), Qt::IntersectsItemBoundingRect);
+        hits.removeOne(mEraser);
+
+        QSet<QGraphicsItem*> groupsToClear;
+        QList<UBGraphicsPolygonItem*> loose;          // polygons with no group
+
+        for (QGraphicsItem* it : hits)
+        {
+            UBGraphicsPolygonItem* pi = qgraphicsitem_cast<UBGraphicsPolygonItem*>(it);
+
+            if (!pi)
+                continue;
+
+            QPainterPath itemPath;
+            itemPath.addPolygon(pi->sceneTransform().map(pi->polygon()));
+
+            if (!eraserPath.intersects(itemPath))
+                continue;
+
+            if (pi->strokesGroup())
+                groupsToClear.insert(pi->strokesGroup());
+            else
+                loose << pi;
+        }
+
+        auto takeOut = [this](UBGraphicsPolygonItem* pi) {
+            mRemovedItems << pi;
+
+            QTransform t;
+            bool applyTransform = false;
+
+            if (pi->strokesGroup())
+            {
+                if (pi->strokesGroup()->parentItem())
+                {
+                    applyTransform = true;
+                    t = pi->sceneTransform();
+                }
+                pi->strokesGroup()->removeFromGroup(pi);
+            }
+
+            removeItem(pi);
+
+            if (applyTransform)
+                pi->setTransform(t);
+        };
+
+        bool changed = false;
+
+        for (QGraphicsItem* g : groupsToClear)
+        {
+            const QList<QGraphicsItem*> children = g->childItems();
+
+            for (QGraphicsItem* child : children)
+            {
+                if (UBGraphicsPolygonItem* pi = qgraphicsitem_cast<UBGraphicsPolygonItem*>(child))
+                {
+                    takeOut(pi);
+                    changed = true;
+                }
+            }
+        }
+
+        for (UBGraphicsPolygonItem* pi : loose)
+        {
+            takeOut(pi);
+            changed = true;
+        }
+
+        if (changed)
+            setModified(true);
+
+        return;
+    }
+
     const QLineF line(mPreviousPoint, pEndPoint);
     mPreviousPoint = pEndPoint;
 

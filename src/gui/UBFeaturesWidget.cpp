@@ -37,6 +37,9 @@
 #include "core/UBDownloadManager.h"
 #include "globals/UBGlobals.h"
 #include "board/UBBoardController.h"
+#include "board/UBBoardView.h"
+#include "desktop/UBDesktopAnnotationController.h"
+#include "core/UBApplicationController.h"
 #include "document/UBDocumentController.h"
 #include "web/UBWebController.h"
 
@@ -434,6 +437,18 @@ UBFeaturesListView::UBFeaturesListView( QWidget* parent, const char* name )
     setDragDropOverwriteMode(true);
 }
 
+void UBFeaturesListView::startDrag(Qt::DropActions supportedActions)
+{
+    // The Desktop overlay deliberately passes mouse events through while the
+    // Selector tool is active, so the teacher can work with the real desktop
+    // behind it. That also swallowed drags from this library -- the tool fell
+    // through to whatever was underneath. Suspend the pass-through for the
+    // duration of the drag, then restore it.
+    UBDesktopAnnotationController::setLibraryDragActive(true);
+    QListView::startDrag(supportedActions);
+    UBDesktopAnnotationController::setLibraryDragActive(false);
+}
+
 void UBFeaturesListView::dragEnterEvent( QDragEnterEvent *event )
 {
     if ( event->mimeData()->hasUrls() || event->mimeData()->hasImage() )
@@ -498,6 +513,42 @@ UBFeaturesNavigatorWidget::UBFeaturesNavigatorWidget(QWidget *parent, const char
 //    SET_STYLE_SHEET()
 
     mListView = new UBFeaturesListView(this, UBFeaturesWidget::objNameFeatureList);
+
+    // WistOpenboard fork: dragging a library item onto the board is awkward at
+    // a wall-mounted board (and with a fingertip), so a double-click / double-tap
+    // drops the item straight onto the middle of the current page. Dragging
+    // still works and still decides the drop position.
+    connect(mListView, &QListView::doubleClicked, this, [](const QModelIndex& index) {
+        if (!index.isValid() || !UBApplication::boardController)
+            return;
+
+        const UBFeature feature = index.data(Qt::UserRole + 1).value<UBFeature>();
+        const QUrl url = feature.getFullPath();
+
+        if (url.isEmpty())
+            return;
+
+        QPointF centre;
+        UBGraphicsScene* target = nullptr;
+
+        // In Desktop mode the item belongs on the overlay, not the board page.
+        UBDesktopAnnotationController* desktop = UBApplication::applicationController
+                ? UBApplication::applicationController->uninotesController() : nullptr;
+
+        if (desktop && desktop->overlayScene() && UBApplication::applicationController
+                && UBApplication::applicationController->isShowingDesktop())
+        {
+            target = desktop->overlayScene().get();
+            centre = desktop->overlayScene()->sceneRect().center();
+        }
+        else if (UBBoardView* view = UBApplication::boardController->controlView())
+        {
+            centre = view->mapToScene(view->viewport()->rect().center());
+        }
+
+        UBApplication::boardController->downloadURL(url, QString(), centre,
+                                                    QSize(), false, true, target);
+    });
 
     mListSlider = new QSlider(Qt::Horizontal, this);
 

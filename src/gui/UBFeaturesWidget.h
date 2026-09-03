@@ -163,6 +163,7 @@ public:
     virtual ~UBFeaturesListView() {;}
 
 protected:
+    void startDrag(Qt::DropActions supportedActions) override;
     virtual void dragEnterEvent( QDragEnterEvent *event );
     virtual void dropEvent( QDropEvent *event );
     virtual void dragMoveEvent( QDragMoveEvent *event );

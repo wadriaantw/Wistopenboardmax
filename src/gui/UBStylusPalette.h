@@ -78,6 +78,11 @@ class UBPenPropertiesPopup : public QWidget
         QSlider* mWidthSlider = nullptr;
         QLabel* mWidthPreview = nullptr;
         QElapsedTimer mShownAt;
+        // True once the gesture that OPENED the popup has ended. Until
+        // then no press may close it -- on a touchscreen the synthesized
+        // mouse press for a long-hold arrives when the finger lifts, which
+        // is long after the popup appeared.
+        bool mOpeningGestureDone = false;
         PopupTool mTool = PopupTool::Pen;
 };
 
@@ -115,6 +120,17 @@ class UBStylusPalette : public UBActionPalette
         int mLastSelectedId;
 
         QAction* mCollapseAction = nullptr;
+
+        // WistOpenboard fork: colour swatches carried on the floating bar
+        // itself, so changing colour never needs a long-press or the top
+        // toolbar. Always visible, including when the bar is collapsed.
+        QList<QAction*> mColourActions;
+
+        // WistOpenboard fork: second eraser that clears whole strokes.
+        QAction* mStrokeEraserAction = nullptr;
+        void buildStrokeEraserAction(QList<QAction*>& actions);
+        void buildColourActions(QList<QAction*>& actions);
+        void refreshColourActions();
         UBPenPropertiesPopup* mPenPropertiesPopup = nullptr;
 
     signals:

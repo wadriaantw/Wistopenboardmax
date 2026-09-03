@@ -119,6 +119,12 @@ class UBWebController : public QObject
 
     private:
         void webBrowserInstance();
+
+        // WistOpenboard fork: session restore for Web mode tabs.
+        void restoreOpenTabs(const QUrl& fallback);
+        void saveOpenTabs();
+        void scheduleSaveOpenTabs();
+        bool mTabSavePending = false;
         UBEmbedParser* embedParser(const QWebEngineView* view) const;
         void updateEmbeddableContent(const QWebEngineView* view) const;
         static QUrl guessUrlFromString(const QString &string);

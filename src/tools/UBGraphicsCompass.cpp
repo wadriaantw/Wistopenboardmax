@@ -51,6 +51,11 @@ const int UBGraphicsCompass::sMinRadius = UBGraphicsCompass::sNeedleLength + UBG
         + 24 + UBGraphicsCompass::sDefaultRect.height() + 24 + UBGraphicsCompass::sPencilBaseLength
         + UBGraphicsCompass::sPencilLength;
 
+// Backstops for touch: the widest useful arm, and the most one event may
+// change it by.
+static const qreal sMaxRadius = 2400.;
+static const qreal sMaxRadiusStep = 60.;
+
 UBGraphicsCompass::UBGraphicsCompass()
     : QGraphicsRectItem()
     , mResizing(false)
@@ -340,9 +345,15 @@ void UBGraphicsCompass::mouseMoveEvent(QGraphicsSceneMouseEvent *event)
             else
             {
                 QPointF delta = event->pos() - event->lastPos();
-                if (rect().width() + delta.x() < sMinRadius)
-                    delta.setX(sMinRadius - rect().width());
-                setRect(QRectF(rect().topLeft(), QSizeF(rect().width() + delta.x(), rect().height())));
+
+                // One event may not swing the arm more than a sane amount: an
+                // unbounded delta snapped the compass open to an absurd radius.
+                delta.setX(qBound(-sMaxRadiusStep, delta.x(), sMaxRadiusStep));
+
+                const qreal newWidth = qBound(qreal(sMinRadius),
+                                              rect().width() + delta.x(),
+                                              sMaxRadius);
+                setRect(QRectF(rect().topLeft(), QSizeF(newWidth, rect().height())));
             }
         }
         else

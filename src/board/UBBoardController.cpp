@@ -205,6 +205,9 @@ void UBBoardController::init()
         const QString rawLast = UBSettings::settings()->lastOpenedDocumentPath->get().toString();
         const QString lastNorm = QDir::cleanPath(rawLast);
 
+        // Snapshot the tab list now, before anything can rewrite it.
+        mPendingRestoreTabPaths = UBSettings::settings()->lastOpenDocumentPaths->get().toStringList();
+
         std::shared_ptr<UBDocumentProxy> bySaved;
         std::shared_ptr<UBDocumentProxy> mostRecent;
         QDateTime mostRecentTime;
@@ -305,6 +308,10 @@ void UBBoardController::init()
                 if (UBApplication::documentController && target)
                     UBApplication::documentController->selectDocument(target, true);
             });
+
+            // Reopen the rest of last session's tabs once the resumed document
+            // is in place, so the active tab stays the one being resumed.
+            QTimer::singleShot(60, this, [this]() { restoreOpenDocumentTabs(); });
         }
         else
         {
@@ -520,6 +527,148 @@ void UBBoardController::setCursorFromAngle(qreal angle, const QPoint offset)
 }
 
 
+
+//--- Toolbar centring ------------------------------------------------------//
+// QToolBar's layout does not hand spare width to an expanding spacer the way a
+// box layout does, so "centre the drawing tools" has to be computed: measure
+// what sits to the left, and give the leading spacer exactly enough width to
+// put the group's midpoint on the toolbar's midpoint. Recomputed on resize,
+// because the window moves between the laptop and the classroom board.
+namespace {
+
+class UBToolbarRelayoutFilter : public QObject
+{
+public:
+    UBToolbarRelayoutFilter(std::function<void()> onRelayout, QObject* parent)
+        : QObject(parent), mOnRelayout(onRelayout) {}
+
+protected:
+    bool eventFilter(QObject* watched, QEvent* event) override
+    {
+        if (event->type() == QEvent::Resize
+            || event->type() == QEvent::Show
+            || event->type() == QEvent::LayoutRequest)
+        {
+            mOnRelayout();
+        }
+
+        return QObject::eventFilter(watched, event);
+    }
+
+private:
+    std::function<void()> mOnRelayout;
+};
+
+}
+
+//--- Shared stylus-width helpers (toolbar slider + long-press popup) -------//
+// OpenBoard stores one width per size index (fine/medium/strong), so a
+// continuous slider writes into whichever index is currently selected.
+namespace {
+
+int ubCurrentDrawingTool()
+{
+    if (UBDrawingController* dc = UBDrawingController::drawingController())
+        return dc->stylusTool();
+
+    return UBStylusTool::Pen;
+}
+
+qreal ubCurrentToolWidth()
+{
+    UBSettings* s = UBSettings::settings();
+
+    switch (ubCurrentDrawingTool())
+    {
+        case UBStylusTool::Marker: return s->currentMarkerWidth();
+        case UBStylusTool::Eraser: return s->currentEraserWidth();
+        default:                   return s->currentPenWidth();
+    }
+}
+
+// Widest each tool may go. Halved from what OpenBoard allowed: the top of
+// the old range was far thicker than anyone writes on a board, so most of
+// the slider's travel was unusable.
+qreal ubCurrentToolMaxWidth()
+{
+    switch (ubCurrentDrawingTool())
+    {
+        case UBStylusTool::Marker: return 30.0;
+        case UBStylusTool::Eraser: return 75.0;
+        default:                   return 15.0;
+    }
+}
+
+// The slider is geometric, not linear: each quarter of the travel roughly
+// doubles the width (1, 2, 4, 8, 15 for the pen). Thickness is judged by
+// ratio rather than by absolute difference -- 1 to 2 units is a visible
+// change, 14 to 15 is not -- so equal steps of the finger give equal
+// visible steps of the stroke, and the writing weights get real travel.
+const int UB_WIDTH_SLIDER_STEPS = 1000;
+const qreal UB_WIDTH_MIN = 1.0;
+
+qreal ubSliderPosToWidth(int pos)
+{
+    const qreal t = qBound(0.0, qreal(pos) / UB_WIDTH_SLIDER_STEPS, 1.0);
+
+    return UB_WIDTH_MIN * qPow(ubCurrentToolMaxWidth() / UB_WIDTH_MIN, t);
+}
+
+int ubWidthToSliderPos(qreal width)
+{
+    const qreal ratio = ubCurrentToolMaxWidth() / UB_WIDTH_MIN;
+
+    if (ratio <= 1.0)
+        return 0;
+
+    const qreal w = qBound(UB_WIDTH_MIN, width, ubCurrentToolMaxWidth());
+
+    return int(qLn(w / UB_WIDTH_MIN) / qLn(ratio) * UB_WIDTH_SLIDER_STEPS + 0.5);
+}
+
+void ubSetCurrentToolWidth(qreal width)
+{
+    UBSettings* s = UBSettings::settings();
+
+    switch (ubCurrentDrawingTool())
+    {
+        case UBStylusTool::Marker:
+            switch (s->markerWidthIndex())
+            {
+                case UBWidth::Medium: s->boardMarkerMediumWidth->set(width); break;
+                case UBWidth::Strong: s->boardMarkerStrongWidth->set(width); break;
+                default:              s->boardMarkerFineWidth->set(width);   break;
+            }
+            break;
+
+        case UBStylusTool::Eraser:
+            switch (s->eraserWidthIndex())
+            {
+                case UBWidth::Medium: s->setEraserMediumWidth(width); break;
+                case UBWidth::Strong: s->setEraserStrongWidth(width); break;
+                default:              s->setEraserFineWidth(width);   break;
+            }
+            break;
+
+        default:
+            switch (s->penWidthIndex())
+            {
+                case UBWidth::Medium: s->boardPenMediumWidth->set(width); break;
+                case UBWidth::Strong: s->boardPenStrongWidth->set(width); break;
+                default:              s->boardPenFineWidth->set(width);   break;
+            }
+            break;
+    }
+}
+
+bool ubToolHasWidth()
+{
+    const int t = ubCurrentDrawingTool();
+    return t == UBStylusTool::Pen || t == UBStylusTool::Marker || t == UBStylusTool::Eraser;
+}
+
+}
+
 void UBBoardController::setupToolbar()
 {
     UBSettings *settings = UBSettings::settings();
@@ -536,7 +685,11 @@ void UBBoardController::setupToolbar()
             new UBToolbarButtonGroup(mMainWindow->boardToolBar, colorActions);
     colorChoice->setLabel(tr("Color"));
 
-    mMainWindow->boardToolBar->insertWidget(mMainWindow->actionBackgrounds, colorChoice);
+    // WistOpenboard fork: the drawing group (stylus, colours, thickness) is
+    // positioned mid-toolbar rather than in the far-left corner -- see the
+    // block that moves actionStylus, below.
+    QAction* colourGroupAction =
+            mMainWindow->boardToolBar->insertWidget(mMainWindow->actionPages, colorChoice);
 
     connect(settings->appToolBarDisplayText, SIGNAL(changed(QVariant)), colorChoice, SLOT(displayText(QVariant)));
     connect(colorChoice, SIGNAL(activated(int)), this, SLOT(setColorIndex(int)));
@@ -571,7 +724,11 @@ void UBBoardController::setupToolbar()
     lineWidthChoice->setCurrentIndex(settings->penWidthIndex());
     lineWidthActions.at(settings->penWidthIndex())->setChecked(true);
 
-    mMainWindow->boardToolBar->insertWidget(mMainWindow->actionBackgrounds, lineWidthChoice);
+    // WistOpenboard fork: the three fine/medium/strong buttons are NOT put on
+    // the toolbar -- the thickness slider below replaces them with a
+    // continuous control. The group itself stays alive so the width-index
+    // signals it carries keep working.
+    lineWidthChoice->hide();
 
     //-----------------------------------------------------------//
     // Eraser width choice removed from toolbar (eraser is now touch-sensitive).
@@ -907,8 +1064,111 @@ void UBBoardController::setupToolbar()
 
         toolsBtn->setMenu(toolsMenu);
 
-        mMainWindow->boardToolBar->insertWidget(mMainWindow->actionErase, toolsBtn);
+        mToolsMenuAction = mMainWindow->boardToolBar->insertWidget(mMainWindow->actionErase, toolsBtn);
         mMainWindow->boardToolBar->insertSeparator(mMainWindow->actionErase);
+    }
+
+    //--- Stylus thickness slider -----------------------------------------//
+    // Width was only reachable by long-pressing a tool, which teachers were not
+    // finding. This puts it on the toolbar, acting on whichever of pen /
+    // marker / eraser is active, with a dot showing the real size.
+    {
+        QWidget* widthBox = new QWidget(mMainWindow->boardToolBar);
+        QHBoxLayout* widthLayout = new QHBoxLayout(widthBox);
+        widthLayout->setContentsMargins(4, 0, 4, 0);
+        widthLayout->setSpacing(4);
+
+        QLabel* widthPreview = new QLabel(widthBox);
+        widthPreview->setFixedSize(20, 20);
+        widthPreview->setAlignment(Qt::AlignCenter);
+
+        QSlider* widthSlider = new QSlider(Qt::Horizontal, widthBox);
+        widthSlider->setFixedWidth(78);
+        widthSlider->setMinimum(0);
+        widthSlider->setMaximum(UB_WIDTH_SLIDER_STEPS);
+        widthSlider->setToolTip(tr("Stylus thickness"));
+
+        widthLayout->addWidget(widthSlider);
+        widthLayout->addWidget(widthPreview);
+
+        auto paintPreview = [widthPreview](qreal width) {
+            QPixmap pm(widthPreview->size());
+            pm.fill(Qt::transparent);
+            QPainter p(&pm);
+            p.setRenderHint(QPainter::Antialiasing, true);
+
+            QColor colour = UBTheme::ink();
+            const int tool = ubCurrentDrawingTool();
+
+            if (tool == UBStylusTool::Marker)
+                colour = UBSettings::settings()->markerColor(false);
+            else if (tool == UBStylusTool::Eraser)
+                colour = UBTheme::inkMuted();
+            else
+                colour = UBSettings::settings()->penColor(false);
+
+            p.setBrush(colour);
+            p.setPen(Qt::NoPen);
+            const qreal d = qBound<qreal>(2.0, width, pm.height() - 2);
+            p.drawEllipse(QPointF(pm.width() / 2.0, pm.height() / 2.0), d / 2.0, d / 2.0);
+            p.end();
+            widthPreview->setPixmap(pm);
+        };
+
+        auto syncFromTool = [widthSlider, widthBox, paintPreview]() {
+            widthBox->setEnabled(ubToolHasWidth());
+
+            if (!ubToolHasWidth())
+                return;
+
+            // A width saved before the ceiling came down is clamped back in.
+            qreal width = qBound(UB_WIDTH_MIN, ubCurrentToolWidth(), ubCurrentToolMaxWidth());
+
+            if (!qFuzzyCompare(width, ubCurrentToolWidth()))
+                ubSetCurrentToolWidth(width);
+
+            widthSlider->blockSignals(true);
+            widthSlider->setValue(ubWidthToSliderPos(width));
+            widthSlider->blockSignals(false);
+            paintPreview(width);
+        };
+
+        connect(widthSlider, &QSlider::valueChanged, this, [paintPreview](int value) {
+            const qreal width = ubSliderPosToWidth(value);
+            ubSetCurrentToolWidth(width);
+            paintPreview(width);
+        });
+
+        connect(UBDrawingController::drawingController(),
+                &UBDrawingController::stylusToolChanged, this,
+                [syncFromTool](int) { syncFromTool(); });
+
+        syncFromTool();
+
+        mMainWindow->boardToolBar->insertWidget(mMainWindow->actionPages, widthBox);
+
+        // WistOpenboard fork: the drawing controls (stylus, colours, thickness)
+        // sit in the middle of the toolbar. A computed spacer was tried first
+        // and left a blank gap to their left; the teacher would rather that
+        // space held buttons. So Tools and Erase move in ahead of the group,
+        // which both fills the gap and balances the row.
+        {
+            QToolBar* toolBar = mMainWindow->boardToolBar;
+
+            // Stylus leads the group: stylus, colours, thickness.
+            toolBar->removeAction(mMainWindow->actionStylus);
+            toolBar->insertAction(colourGroupAction, mMainWindow->actionStylus);
+
+            // Tools + Erase go just before the stylus.
+            if (mToolsMenuAction)
+            {
+                toolBar->removeAction(mToolsMenuAction);
+                toolBar->insertAction(mMainWindow->actionStylus, mToolsMenuAction);
+            }
+            toolBar->removeAction(mMainWindow->actionErase);
+            toolBar->insertAction(mMainWindow->actionStylus, mMainWindow->actionErase);
+            toolBar->insertSeparator(mMainWindow->actionStylus);
+        }
     }
 
     //--- Continuous page scrolling toggle --------------------------------//
@@ -2050,6 +2310,19 @@ void UBBoardController::positionZenButtons()
 
 void UBBoardController::previousScene()
 {
+    if (mControlView)
+        mControlView->stopKineticScroll();      // a coast still running would undo the page turn
+
+    // Continuous mode turns pages through the strip, not the single-page reset.
+    if (mControlView && mControlView->isContinuousScroll() && mActiveSceneIndex > 0)
+    {
+        if (mControlView->goToPage(mActiveSceneIndex - 1))
+        {
+            updateActionStates();
+            return;
+        }
+    }
+
     if (mActiveSceneIndex > 0)
     {
         QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
@@ -2064,6 +2337,19 @@ void UBBoardController::previousScene()
 
 void UBBoardController::nextScene()
 {
+    if (mControlView)
+        mControlView->stopKineticScroll();
+
+    if (mControlView && mControlView->isContinuousScroll()
+        && selectedDocument() && mActiveSceneIndex < selectedDocument()->pageCount() - 1)
+    {
+        if (mControlView->goToPage(mActiveSceneIndex + 1))
+        {
+            updateActionStates();
+            return;
+        }
+    }
+
     if (mActiveSceneIndex < selectedDocument()->pageCount() - 1)
     {
         QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
@@ -2807,6 +3093,107 @@ void UBBoardController::registerOpenDocument(std::shared_ptr<UBDocumentProxy> pr
 
     if (mMainWindow)
         mMainWindow->refreshDocumentTabsLayout();
+
+    saveOpenDocumentTabs();
+}
+
+// --- WistOpenboard fork: document tab session restore --------------------
+//
+// The tab bar is the fork's own; upstream OpenBoard has a single open
+// document and only ever resumed that one. Teachers routinely work with a
+// lesson and a worksheet side by side, so the whole set is remembered.
+
+void UBBoardController::saveOpenDocumentTabs()
+{
+    if (mInInit)
+        return;
+
+    QStringList paths;
+
+    for (const UBOpenDocument& open : mOpenDocuments)
+    {
+        if (open.proxy && !open.proxy->persistencePath().isEmpty())
+            paths << open.proxy->persistencePath();
+    }
+
+    UBSettings::settings()->lastOpenDocumentPaths->set(paths);
+}
+
+void UBBoardController::restoreOpenDocumentTabs()
+{
+    UBSettings* settings = UBSettings::settings();
+
+    if (!settings->appRestoreDocumentTabs->get().toBool())
+        return;
+
+    const QStringList paths = mPendingRestoreTabPaths;
+    mPendingRestoreTabPaths.clear();
+
+    if (paths.isEmpty())
+        return;
+
+    // Resolve saved paths against the document tree. A document deleted or
+    // moved since last session simply does not come back.
+    QMap<QString, std::shared_ptr<UBDocumentProxy>> byPath;
+
+    std::function<void(UBDocumentTreeNode*)> walk = [&](UBDocumentTreeNode* n) {
+        if (!n)
+            return;
+
+        if (n->nodeType() == UBDocumentTreeNode::Document)
+        {
+            auto p = n->proxyData();
+
+            if (p && !p->isBroken() && !p->persistencePath().isEmpty())
+                byPath.insert(QDir::cleanPath(p->persistencePath()), p);
+        }
+
+        for (auto* c : n->children())
+            walk(c);
+    };
+
+    auto* tree = UBPersistenceManager::persistenceManager()->mDocumentTreeStructureModel;
+
+    if (tree && tree->rootNode())
+        walk(tree->rootNode());
+
+    int registered = 0;
+    int resolved = 0;
+
+    for (const QString& path : paths)
+    {
+        auto proxy = byPath.value(QDir::cleanPath(path));
+
+        if (proxy)
+            resolved++;
+
+        if (proxy && indexOfOpenDocument(proxy) < 0)
+        {
+            registerOpenDocument(proxy);
+            registered++;
+        }
+    }
+
+    // Temporary diagnostic: this restore has to work unattended on other
+    // machines, so record what it actually saw.
+    {
+        QFile f("C:/openboard-fork/last-startup.log");
+        if (f.open(QIODevice::Append | QIODevice::Text))
+        {
+            QTextStream ts(&f);
+            ts << "TabRestore: saved=" << paths.size()
+               << " treeDocs=" << byPath.size()
+               << " resolved=" << resolved
+               << " registered=" << registered
+               << " openNow=" << mOpenDocuments.size() << Qt::endl;
+            for (const QString& path : paths)
+                ts << "  saved path: '" << path << "' -> "
+                   << (byPath.contains(QDir::cleanPath(path)) ? "FOUND" : "not in tree") << Qt::endl;
+            f.close();
+        }
+    }
+
+    syncCurrentTab();
 }
 
 void UBBoardController::prepareTabForDocument(std::shared_ptr<UBDocumentProxy> proxy)
@@ -3298,6 +3685,7 @@ void UBBoardController::closing()
     if (curDoc && !curDoc->persistencePath().isEmpty()) {
         UBSettings::settings()->lastOpenedDocumentPath->set(curDoc->persistencePath());
         UBSettings::settings()->lastOpenedSceneIndex->set(mActiveSceneIndex);
+        saveOpenDocumentTabs();
         UBSettings::settings()->save();
     }
 
@@ -3858,6 +4246,25 @@ void UBBoardController::processMimeData(const QMimeData* pMimeData, const QPoint
             }
 
             return;
+        }
+    }
+
+    // WistOpenboard fork: recognise a tool drag (compass, ruler, protractor,
+    // set square, axes, mask, magnifier) BEFORE the html/url branches below.
+    // Those treat the drag as a web link and hand it to the download path,
+    // which is why a tool dropped on the Desktop overlay opened a browser
+    // page instead of appearing on the board.
+    if (pMimeData->hasUrls())
+    {
+        const QList<QUrl> toolUrls = pMimeData->urls();
+
+        for (const QUrl& candidate : toolUrls)
+        {
+            if (candidate.scheme() == QLatin1String("openboardtool"))
+            {
+                downloadURL(candidate, QString(), pPos, QSize(), false, true, targetScene);
+                return;
+            }
         }
     }
 

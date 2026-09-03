@@ -193,6 +193,11 @@ class UBGraphicsScene: public UBCoreGraphicsScene, public UBItem, public std::en
         void drawLineTo(const QPointF& pEndPoint, const qreal& pWidth, bool bLineStyle);
         void drawLineTo(const QPointF& pEndPoint, const qreal& pStartWidth, const qreal& endWidth, bool bLineStyle);
         void eraseLineTo(const QPointF& pEndPoint, const qreal& pWidth);
+
+        // WistOpenboard fork: when set, the eraser removes every stroke it
+        // touches in one go instead of cutting a hole through it.
+        static void setStrokeEraserMode(bool on) { sStrokeEraserMode = on; }
+        static bool strokeEraserMode() { return sStrokeEraserMode; }
         void drawArcTo(const QPointF& pCenterPoint, qreal pSpanAngle);
         void drawCurve(const QList<QPair<QPointF, qreal> > &points);
         void drawCurve(const QList<QPointF>& points, qreal startWidth, qreal endWidth);
@@ -423,6 +428,7 @@ signals:
 
 
     private:
+        static bool sStrokeEraserMode;
         void setDocumentUpdated();
         void updateBackground();
         void createEraiser();

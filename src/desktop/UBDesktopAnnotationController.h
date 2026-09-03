@@ -86,6 +86,16 @@ class UBDesktopAnnotationController : public QObject
         void stylusToolChanged(int tool);
         void updateBackground();
 
+        // WistOpenboard fork: the overlay owns its own scene -- anything
+        // added here must NOT end up on the board page.
+        std::shared_ptr<UBGraphicsScene> overlayScene() const { return mTransparentDrawingScene; }
+
+        // While a library drag is in flight the overlay must be a real drop
+        // target even under the Selector tool, whose pass-through would
+        // otherwise let the drag fall through to the desktop behind.
+        static void setLibraryDragActive(bool active);
+        static bool libraryDragActive();
+
 //         void showKeyboard(bool show);
 //         void showKeyboard(); //X11 virtual keyboard working only needed
 

@@ -43,6 +43,11 @@
 const QRectF UBGraphicsProtractor::sDefaultRect = QRectF(-250, -250, 500, 500);
 const qreal UBGraphicsProtractor::minRadius = 70;
 
+// Safety rails on the total scale. A backstop only -- the compounding that
+// made the protractor explode under touch is fixed in mouseMoveEvent.
+static const qreal sMinScaleFactor = 0.25;
+static const qreal sMaxScaleFactor = 6.0;
+
 
 UBGraphicsProtractor::UBGraphicsProtractor()
         : QGraphicsEllipseItem(sDefaultRect)
@@ -214,6 +219,7 @@ void UBGraphicsProtractor::keyPressEvent(QKeyEvent *event)
 void UBGraphicsProtractor::mousePressEvent(QGraphicsSceneMouseEvent *event)
 {
     mPreviousMousePos = event->pos();
+    mPreviousScenePos = event->scenePos();
     mCurrentTool = toolFromPos(event->pos());
     mShowButtons = mCurrentTool == Reset || mCurrentTool == Close;
     mCursorRotationAngle = 0;
@@ -255,14 +261,45 @@ void UBGraphicsProtractor::mouseMoveEvent(QGraphicsSceneMouseEvent *event)
 
 
     case Resize :
-        if (radius() * mScaleFactor * scaleFactor > minRadius) {
-            prepareGeometryChange();
-            setTransform(QTransform::fromTranslate(rect().center().x(), rect().center().y()), true);
-            setTransform(QTransform::fromScale(scaleFactor, scaleFactor), true);
-            setTransform(QTransform::fromTranslate(-rect().center().x(), -rect().center().y()), true);
-            mScaleFactor *= scaleFactor;
+    {
+        // Scale from how far the finger moved SINCE THE LAST EVENT, in scene
+        // coordinates.
+        //
+        // The old code compared against the press position but applied the
+        // resulting ratio cumulatively on every move, so the scale compounded --
+        // one steady drag multiplied the size again and again, which is the
+        // "suddenly enormous" jump. It also measured in item coordinates, which
+        // the scaling itself distorts, feeding the transform back into its own
+        // input and making the size oscillate.
+        const QPointF centreScene = mapToScene(rect().center());
+        const QLineF previousLine(centreScene, mPreviousScenePos);
+        const QLineF currentLine2(centreScene, event->scenePos());
+
+        // Near the centre the ratio is meaningless and the division explodes.
+        if (previousLine.length() > 2.0 && currentLine2.length() > 2.0)
+        {
+            qreal step = currentLine2.length() / previousLine.length();
+
+            // No single event may make a large change, however far the touch
+            // point jumped -- touch screens do report jumps.
+            step = qBound(0.85, step, 1.18);
+
+            const qreal target = qBound(sMinScaleFactor, mScaleFactor * step, sMaxScaleFactor);
+            step = target / mScaleFactor;
+
+            if (!qFuzzyCompare(step, 1.0) && radius() * target > minRadius)
+            {
+                prepareGeometryChange();
+                setTransform(QTransform::fromTranslate(rect().center().x(), rect().center().y()), true);
+                setTransform(QTransform::fromScale(step, step), true);
+                setTransform(QTransform::fromTranslate(-rect().center().x(), -rect().center().y()), true);
+                mScaleFactor = target;
+            }
         }
+
+        mPreviousScenePos = event->scenePos();
         break;
+    }
 
     case MoveMarker :
 

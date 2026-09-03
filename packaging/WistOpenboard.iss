@@ -1,5 +1,5 @@
 ; ===========================================================================
-;  WistOpenboard — Inno Setup script
+;  WistOpenboard ??Inno Setup script
 ;  Builds a single WistOpenboard-Setup.exe that installs the app to
 ;  Program Files, creates Start Menu + Desktop shortcuts, and offers to
 ;  install the Visual C++ 2022 runtime if missing.
@@ -12,12 +12,12 @@
 ;     (download: https://aka.ms/vs/17/release/vc_redist.x64.exe)
 ;     It is always embedded in the installer; compilation fails if missing.
 ;  3. Open this .iss file in Inno Setup (double-click it) and press F9 (or
-;     Build → Compile). The installer is written to:
+;     Build ??Compile). The installer is written to:
 ;        C:\openboard-fork\packaging\Output\WistOpenboard-Setup.exe
 ; ===========================================================================
 
 #define MyAppName        "WistOpenboard"
-#define MyAppVersion     "2026.13"
+#define MyAppVersion     "2026.18"
 #define MyAppPublisher   "Adriaan Willemse"
 #define MyAppExeName     "OpenBoard.exe"
 #define MyAppId          "{{C9F5C5BD-2026-4E1A-9F88-D7E4A8C14BDE}"
@@ -59,7 +59,7 @@ Name: "quicklaunchicon"; Description: "{cm:CreateQuickLaunchIcon}"; GroupDescrip
 Source: "{#ProductDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 ; VC++ runtime is ALWAYS embedded in the installer (compile fails if the file
-; is missing next to this .iss — that's intentional, we want it bundled).
+; is missing next to this .iss ??that's intentional, we want it bundled).
 Source: "{#VCRedistFile}"; DestDir: "{tmp}"; Flags: deleteafterinstall
 
 [Icons]
@@ -68,9 +68,9 @@ Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Run]
-; Silently install the VC++ runtime first — unless a new-enough runtime is
+; Silently install the VC++ runtime first ??unless a new-enough runtime is
 ; already on the machine. Skipping when already present
-; avoids the "0x80070666 — Another version of this product is already
+; avoids the "0x80070666 ??Another version of this product is already
 ; installed" error dialog.
 Filename: "{tmp}\{#VCRedistFile}"; Parameters: "/install /quiet /norestart"; \
     StatusMsg: "Installing Visual C++ 2022 runtime..."; \

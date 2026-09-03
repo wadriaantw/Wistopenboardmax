@@ -28,6 +28,7 @@
 
 
 #include "UBStylusPalette.h"
+#include <QTimer>
 
 #include <QtGui>
 
@@ -169,6 +170,7 @@ UBPenPropertiesPopup::UBPenPropertiesPopup(QWidget* parent)
 void UBPenPropertiesPopup::showEvent(QShowEvent* event)
 {
     mShownAt.start();
+    mOpeningGestureDone = false;
     qApp->installEventFilter(this);
     QWidget::showEvent(event);
 }
@@ -181,17 +183,42 @@ void UBPenPropertiesPopup::hideEvent(QHideEvent* event)
 
 bool UBPenPropertiesPopup::eventFilter(QObject* watched, QEvent* event)
 {
-    if (isVisible()
-        && (event->type() == QEvent::MouseButtonPress || event->type() == QEvent::TouchBegin))
+    if (isVisible())
     {
-        // Ignore everything in the first 400 ms -- leftovers of the gesture
-        // that opened us.
-        if (mShownAt.elapsed() > 400)
+        // The finger that long-pressed the tool is still down when we appear.
+        // Its lift -- and the mouse press Windows synthesizes from it, which on
+        // an interactive board can arrive a second or more later -- belongs to
+        // the OPENING gesture and must never close us. A time-based grace was
+        // wrong: it expired while the teacher was still holding.
+        if (event->type() == QEvent::MouseButtonRelease
+            || event->type() == QEvent::TouchEnd
+            || event->type() == QEvent::TouchCancel)
+        {
+            // Arm AFTER a short settle, not immediately. Windows delivers
+            // TouchEnd first and only then synthesizes the mouse press/release
+            // for that same lift -- arming on the spot let that synthesized
+            // press, still part of the opening gesture, close the popup.
+            QTimer::singleShot(250, this, [this]() { mOpeningGestureDone = true; });
+        }
+        else if (mOpeningGestureDone
+                 && (event->type() == QEvent::MouseButtonPress
+                     || event->type() == QEvent::TouchBegin))
         {
             QPoint globalPos = QCursor::pos();
 
             if (event->type() == QEvent::MouseButtonPress)
+            {
                 globalPos = static_cast<QMouseEvent*>(event)->globalPosition().toPoint();
+            }
+            else
+            {
+                // QCursor::pos() is not meaningful on a touch board, so take the
+                // position from the touch point itself.
+                const QTouchEvent* te = static_cast<QTouchEvent*>(event);
+
+                if (!te->points().isEmpty())
+                    globalPos = te->points().first().globalPosition().toPoint();
+            }
 
             if (!geometry().contains(globalPos))
                 close();
@@ -363,17 +390,17 @@ void UBPenPropertiesPopup::refresh(PopupTool tool)
     buildColourGrid();
 
     qreal width = 3.0;
-    int maximum = 60;               // slider carries half-units
+    int maximum = 30;               // slider carries half-units, so 15 units
 
     switch (mTool)
     {
         case PopupTool::Marker:
             width = UBSettings::settings()->currentMarkerWidth();
-            maximum = 120;
+            maximum = 60;       // 30 units; see ubCurrentToolMaxWidth()
             break;
         case PopupTool::Eraser:
             width = UBSettings::settings()->currentEraserWidth();
-            maximum = 300;
+            maximum = 150;      // 75 units
             break;
         case PopupTool::Pen:
         default:
@@ -404,6 +431,11 @@ UBStylusPalette::UBStylusPalette(QWidget *parent, Qt::Orientation orient)
     UBApplication::mainWindow->actionSnapToShape->setProperty("ungrouped", true);
 
     actions << UBApplication::mainWindow->actionEraser;
+
+    // Colours sit next to the eraser: pen, eraser, colour is the loop a
+    // teacher runs through most often while annotating.
+    buildStrokeEraserAction(actions);
+    buildColourActions(actions);
 
     // WistOpenboard fork: undo/redo on the dock -- in zen mode the toolbar that
     // used to carry them is hidden.
@@ -475,6 +507,18 @@ UBStylusPalette::UBStylusPalette(QWidget *parent, Qt::Orientation orient)
         // so tapping the arrow appeared to do nothing at all.
         collapseButton->setIconSize(QSize(24, 34));
         collapseButton->setFixedSize(24, 34);   // narrow: the dots column needs no width
+    }
+
+    // Colour swatches are narrower than the tool buttons: they carry a plain
+    // dot, not a glyph that needs room, and five full-width buttons ate too
+    // much of the bar. Small ICON, still-tappable TARGET.
+    for (QAction* colourAction : mColourActions)
+    {
+        if (UBActionPaletteButton* button = getButtonFromAction(colourAction))
+        {
+            button->setIconSize(QSize(18, 18));
+            button->setFixedSize(26, 34);
+        }
     }
 
     UBShortcutManager::shortcutManager()->addActionGroup(mActionGroup);
@@ -568,6 +612,149 @@ void UBStylusPalette::updateLayout()
     layout()->setSpacing(4);
 }
 
+// --- WistOpenboard fork: whole-stroke eraser button ------------------------
+
+void UBStylusPalette::buildStrokeEraserAction(QList<QAction*>& actions)
+{
+    mStrokeEraserAction = new QAction(this);
+    mStrokeEraserAction->setCheckable(true);
+    mStrokeEraserAction->setToolTip(tr("Erase whole strokes"));
+
+    // Icon: the eraser block with a stroke crossed out beside it.
+    auto paintIcon = [](const QColor& ink) {
+        QPixmap pm(36, 36);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        QPen pen(ink, 2.4, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
+        p.setPen(pen);
+        p.save();
+        p.translate(14, 20);
+        p.rotate(-45);
+        p.drawRoundedRect(QRectF(-7, -4.5, 14, 9), 2.5, 2.5);
+        p.drawLine(QPointF(-1.5, -4.5), QPointF(-1.5, 4.5));
+        p.restore();
+        // a wavy stroke being struck through
+        QPainterPath wave;
+        wave.moveTo(20, 26);
+        wave.cubicTo(24, 20, 27, 32, 31, 26);
+        p.drawPath(wave);
+        p.setPen(QPen(UBTheme::accentRed(), 2.4, Qt::SolidLine, Qt::RoundCap));
+        p.drawLine(QPointF(21, 20), QPointF(31, 32));
+        p.end();
+        return pm;
+    };
+
+    QIcon icon;
+    icon.addPixmap(paintIcon(UBTheme::ink()), QIcon::Normal);
+    mStrokeEraserAction->setIcon(icon);
+
+    connect(mStrokeEraserAction, &QAction::triggered, this, [this]() {
+        UBGraphicsScene::setStrokeEraserMode(true);
+        UBDrawingController::drawingController()->setStylusTool(UBStylusTool::Eraser);
+
+        // The tool group has just checked the ordinary eraser; show only this
+        // one as active. Deferred so it runs after the group's own update.
+        QTimer::singleShot(0, this, [this]() {
+            if (UBApplication::mainWindow)
+                UBApplication::mainWindow->actionEraser->setChecked(false);
+            mStrokeEraserAction->setChecked(true);
+        });
+    });
+
+    // Any other tool -- including the ordinary eraser -- leaves stroke mode.
+    connect(UBDrawingController::drawingController(),
+            &UBDrawingController::stylusToolChanged, this, [this](int tool) {
+        if (tool != UBStylusTool::Eraser || !UBGraphicsScene::strokeEraserMode())
+        {
+            UBGraphicsScene::setStrokeEraserMode(false);
+            mStrokeEraserAction->setChecked(false);
+        }
+    });
+
+    if (UBApplication::mainWindow)
+    {
+        connect(UBApplication::mainWindow->actionEraser, &QAction::triggered, this, [this]() {
+            UBGraphicsScene::setStrokeEraserMode(false);
+            mStrokeEraserAction->setChecked(false);
+        });
+    }
+
+    actions << mStrokeEraserAction;
+}
+
+// --- WistOpenboard fork: colour swatches on the floating bar -------------
+
+void UBStylusPalette::buildColourActions(QList<QAction*>& actions)
+{
+    const int count = UBSettings::settings()->penColors(false).count();
+
+    for (int i = 0; i < count; ++i)
+    {
+        QAction* swatch = new QAction(this);
+        swatch->setCheckable(true);
+        swatch->setToolTip(tr("Colour %1").arg(i + 1));
+
+        connect(swatch, &QAction::triggered, this, [i]() {
+            UBDrawingController::drawingController()->setColorIndex(i);
+        });
+
+        mColourActions << swatch;
+        actions << swatch;
+    }
+
+    refreshColourActions();
+
+    // The palette differs between light and dark pages, and the checked one
+    // moves when the colour changes anywhere else (top toolbar, long-press).
+    connect(UBDrawingController::drawingController(),
+            &UBDrawingController::colorPaletteChanged,
+            this, &UBStylusPalette::refreshColourActions);
+
+    connect(UBDrawingController::drawingController(),
+            &UBDrawingController::stylusToolChanged,
+            this, [this](int) { refreshColourActions(); });
+}
+
+void UBStylusPalette::refreshColourActions()
+{
+    if (mColourActions.isEmpty())
+        return;
+
+    const bool onDark = ubOnDarkBackground();
+    UBDrawingController* dc = UBDrawingController::drawingController();
+    const bool markerActive = dc && dc->stylusTool() == UBStylusTool::Marker;
+
+    const QList<QColor> colours = markerActive
+            ? UBSettings::settings()->markerColors(onDark)
+            : UBSettings::settings()->penColors(onDark);
+
+    const int current = dc ? dc->currentToolColorIndex() : 0;
+
+    for (int i = 0; i < mColourActions.count(); ++i)
+    {
+        QAction* action = mColourActions.at(i);
+
+        if (!action)
+            continue;
+
+        const QColor colour = (i < colours.count()) ? colours.at(i) : QColor(Qt::black);
+
+        // Rounded chip with a ring, matching the long-press popup.
+        QPixmap pm(20, 20);
+        pm.fill(Qt::transparent);
+        QPainter p(&pm);
+        p.setRenderHint(QPainter::Antialiasing, true);
+        p.setBrush(colour);
+        p.setPen(QPen(UBTheme::ring(), 1));
+        p.drawEllipse(QRectF(2.5, 2.5, 15., 15.));
+        p.end();
+
+        action->setIcon(QIcon(pm));
+        action->setChecked(i == current);
+    }
+}
+
 void UBStylusPalette::setCollapsed(bool collapsed)
 {
     UBMainWindow* mainWindow = UBApplication::mainWindow;
@@ -577,9 +764,15 @@ void UBStylusPalette::setCollapsed(bool collapsed)
 
     // Everything else folds away; these stay so the palette is still usable, and
     // the arrow stays so there is a way back.
-    const QList<QAction*> alwaysShown{mainWindow->actionPen,
-                                      mainWindow->actionEraser,
-                                      mCollapseAction};
+    QList<QAction*> alwaysShown{mainWindow->actionPen,
+                                mainWindow->actionEraser,
+                                mCollapseAction};
+
+    // The colours are the point of having them here -- they stay whether the
+    // bar is collapsed or not.
+    alwaysShown += mColourActions;
+    if (mStrokeEraserAction)
+        alwaysShown << mStrokeEraserAction;
 
     for (auto it = mMapActionToButton.constBegin(); it != mMapActionToButton.constEnd(); ++it)
     {
@@ -663,7 +856,13 @@ void UBStylusPalette::showToolProperties(UBPenPropertiesPopup::PopupTool tool, Q
         anchorAction->trigger();
 
     if (!mPenPropertiesPopup)
-        mPenPropertiesPopup = new UBPenPropertiesPopup(this);
+    {
+        // NOT parented to the palette: a Qt::Tool window is hidden by Qt
+        // whenever its parent window hides, and this palette hides and
+        // re-lays-out on every tool change and collapse -- which closed the
+        // popup the moment it opened. The main window is stable.
+        mPenPropertiesPopup = new UBPenPropertiesPopup(mainWindow);
+    }
 
     mPenPropertiesPopup->refresh(tool);
 
@@ -697,7 +896,12 @@ void UBStylusPalette::showToolProperties(UBPenPropertiesPopup::PopupTool tool, Q
 
 void UBStylusPalette::stylusToolDoubleClicked()
 {
-    emit stylusToolDoubleClicked(mActionGroup->checkedAction()->property("id").toInt());
+    QAction* checked = mActionGroup->checkedAction();
+
+    if (!checked)
+        return;                                 // stroke-eraser mode leaves the group unchecked
+
+    emit stylusToolDoubleClicked(checked->property("id").toInt());
 }
 
 

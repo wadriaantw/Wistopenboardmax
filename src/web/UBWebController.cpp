@@ -49,6 +49,7 @@
 #include <QWebEngineHistory>
 #include <QWebEngineHistoryItem>
 #include <QWebEngineProfile>
+#include <QTimer>
 #include <QWebEngineScript>
 #include <QWebEngineScriptCollection>
 #include <QWebEngineSettings>
@@ -849,8 +850,18 @@ void UBWebController::webBrowserInstance()
                 }
             }
 
-            mCurrentWebBrowser->currentTab()->load(currentUrl);
+            // WistOpenboard fork: reopen last session's tabs instead of always
+            // starting from the home page. Falls back to the home page when
+            // there is nothing to restore or the option is off.
+            restoreOpenTabs(currentUrl);
             mCurrentWebBrowser->tabWidget()->tabBar()->show();
+
+            // Keep the saved set current as the teacher works, so a crash or a
+            // forced shutdown still leaves the right tabs to come back to.
+            connect(tabWidget, &TabWidget::urlChanged,      this, [this](const QUrl&) { scheduleSaveOpenTabs(); });
+            connect(tabWidget, &TabWidget::tabCreated,      this, [this](WebView*)    { scheduleSaveOpenTabs(); });
+            connect(tabWidget, &TabWidget::tabClosing,      this, [this](WebView*)    { scheduleSaveOpenTabs(); });
+            connect(tabWidget, &TabWidget::currentChanged,  this, [this](int)         { scheduleSaveOpenTabs(); });
 
             QObject::connect(
                 mWebProfile, &QWebEngineProfile::downloadRequested,
@@ -1108,7 +1119,95 @@ void UBWebController::screenLayoutChanged()
 
 void UBWebController::closing()
 {
-    //NOOP
+    saveOpenTabs();
+}
+
+// --- WistOpenboard fork: Web mode session restore ------------------------
+
+void UBWebController::restoreOpenTabs(const QUrl& fallback)
+{
+    if (!mCurrentWebBrowser)
+        return;
+
+    TabWidget* tabs = mCurrentWebBrowser->tabWidget();
+    UBSettings* settings = UBSettings::settings();
+
+    QStringList saved;
+
+    if (settings->webRestoreTabs->get().toBool())
+        saved = settings->webLastOpenTabs->get().toStringList();
+
+    // Drop anything that cannot meaningfully come back.
+    QStringList urls;
+
+    for (const QString& u : saved)
+    {
+        const QUrl url(u);
+
+        if (url.isValid() && !url.isEmpty() && url.scheme() != QLatin1String("about"))
+            urls << u;
+    }
+
+    if (urls.isEmpty())
+    {
+        mCurrentWebBrowser->currentTab()->load(fallback);
+        return;
+    }
+
+    // The browser already made one tab; reuse it for the first URL.
+    mCurrentWebBrowser->currentTab()->load(QUrl(urls.first()));
+
+    for (int i = 1; i < urls.size(); ++i)
+    {
+        if (WebView* view = tabs->createTab())
+            view->load(QUrl(urls.at(i)));
+    }
+
+    const int index = settings->webLastOpenTabIndex->get().toInt();
+
+    if (index >= 0 && index < tabs->count())
+        tabs->setCurrentIndex(index);
+}
+
+void UBWebController::saveOpenTabs()
+{
+    if (!mCurrentWebBrowser)
+        return;
+
+    TabWidget* tabs = mCurrentWebBrowser->tabWidget();
+    QStringList urls;
+
+    for (int i = 0; i < tabs->count(); ++i)
+    {
+        WebView* view = qobject_cast<WebView*>(tabs->widget(i));   // webView(i) is private
+
+        if (!view)
+            continue;
+
+        const QUrl url = view->url();
+
+        if (url.isValid() && !url.isEmpty() && url.scheme() != QLatin1String("about"))
+            urls << url.toString();
+    }
+
+    UBSettings* settings = UBSettings::settings();
+    settings->webLastOpenTabs->set(urls);
+    settings->webLastOpenTabIndex->set(tabs->currentIndex());
+}
+
+// Tab signals fire mid-change (tabClosing arrives before the tab is gone), so
+// the save is deferred a moment and coalesced.
+void UBWebController::scheduleSaveOpenTabs()
+{
+    if (mTabSavePending)
+        return;
+
+    mTabSavePending = true;
+
+    QTimer::singleShot(500, this, [this]() {
+        mTabSavePending = false;
+        saveOpenTabs();
+    });
 }
 
 

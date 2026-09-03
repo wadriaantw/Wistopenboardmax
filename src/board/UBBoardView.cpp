@@ -89,6 +89,9 @@
 #include "tools/UBGraphicsRuler.h"
 #include "domain/UBEditableShapeItem.h"
 #include <typeinfo>
+#include <QFile>
+#include <QTextStream>
+#include <QElapsedTimer>
 #include <QGraphicsSceneMouseEvent>
 #include "domain/UBGraphicsCurveItem.h"
 #include "tools/UBGraphicsAxes.h"
@@ -816,6 +819,10 @@ bool UBBoardView::event (QEvent * e)
                 // across different smartboard drivers — on at least one PC the
                 // board reported tiny ellipse sizes for finger contacts too,
                 // which blocked legitimate finger pans.
+                stopFling();                            // a new touch takes over from any coast
+                mPanClock.restart();
+                mPanVelocity = QPointF(0, 0);
+                mPanSamples.clear();
                 mTouchPanArmed = true;                  // always armed for single touch
                 mIsTouchPanning = false;                // not panning until deadzone clears
                 mTouchPanId = ptId(pts.first());
@@ -896,10 +903,54 @@ bool UBBoardView::event (QEvent * e)
                         horizontalScrollBar()->setValue(horizontalScrollBar()->value() - (int)delta.x());
                         verticalScrollBar()->setValue(verticalScrollBar()->value() - (int)delta.y());
                         mTouchPanStart = cur;
+
+                        // Keep a short history of where the finger was and when.
+                        mPanSamples.append(qMakePair(cur, mPanClock.elapsed()));
+                        while (mPanSamples.size() > 12)
+                            mPanSamples.removeFirst();
                     }
                 }
             }
         } else { // TouchEnd
+            // A finger lifted while still moving keeps the page going. Speed is
+            // measured across the last ~100 ms of travel, so a flick counts even
+            // if the very last event was a slow one.
+            if (mIsTouchPanning && mPanSamples.size() >= 2)
+            {
+                const qint64 now = mPanClock.elapsed();
+                const QPair<QPointF, qint64> last = mPanSamples.last();
+                QPair<QPointF, qint64> first = mPanSamples.first();
+
+                for (const auto& sample : mPanSamples)
+                {
+                    if (last.second - sample.second <= 100)
+                    {
+                        first = sample;
+                        break;
+                    }
+                }
+
+                const qint64 span = last.second - first.second;
+                const qint64 sinceLast = now - last.second;
+
+                // Held still before lifting: that is a stop, not a flick.
+                if (span > 0 && sinceLast < 200)
+                {
+                    mPanVelocity = (last.first - first.first) / qreal(span);
+                    startFling();
+                }
+
+                QFile f("C:/openboard-fork/last-startup.log");
+                if (f.open(QIODevice::Append | QIODevice::Text))
+                {
+                    QTextStream ts(&f);
+                    ts << "Fling: samples=" << mPanSamples.size()
+                       << " span=" << span << "ms sinceLast=" << sinceLast
+                       << " v=(" << mPanVelocity.x() << "," << mPanVelocity.y() << ") px/ms"
+                       << " running=" << (mFlingTimer && mFlingTimer->isActive()) << Qt::endl;
+                }
+            }
+
             mIsTouchPanning = false;
             mTouchPanArmed = false;
             mTouchPanId = -1;
@@ -911,6 +962,62 @@ bool UBBoardView::event (QEvent * e)
     }
 
     return QGraphicsView::event (e);
+}
+
+// --- WistOpenboard fork: kinetic scrolling -------------------------------
+
+void UBBoardView::startFling()
+{
+    const qreal speed = std::hypot(mPanVelocity.x(), mPanVelocity.y());
+
+    if (speed < 0.15)                       // a slow lift is a stop, not a flick
+        return;
+
+    if (!mFlingTimer)
+    {
+        mFlingTimer = new QTimer(this);
+        mFlingTimer->setInterval(16);       // ~60 Hz
+
+        connect(mFlingTimer, &QTimer::timeout, this, [this]() {
+            // Real elapsed time, not the nominal 16 ms. While the strip is
+            // rendering PDF pages a tick can arrive 50-100 ms late; stepping a
+            // fixed 16 ms worth on each one starved the coast to a crawl.
+            qreal dt = qreal(mFlingClock.restart());
+            dt = qBound(1.0, dt, 120.0);
+
+            const QPointF step = mPanVelocity * dt;
+
+            horizontalScrollBar()->setValue(horizontalScrollBar()->value() - qRound(step.x()));
+            verticalScrollBar()->setValue(verticalScrollBar()->value() - qRound(step.y()));
+
+            // Friction per 16 ms, scaled to the time that actually passed.
+            mPanVelocity *= qPow(0.985, dt / 16.0);
+
+            if (std::hypot(mPanVelocity.x(), mPanVelocity.y()) < 0.04)
+                stopFling();
+        });
+    }
+
+    // A flick should feel decisive: the measured speed is averaged over the
+    // last 100 ms, which includes the finger already slowing as it lifts.
+    mPanVelocity *= 1.6;
+
+    // Cap so a violent swipe cannot fire the page off into the distance.
+    const qreal maxSpeed = 10.0;
+    const qreal boosted = std::hypot(mPanVelocity.x(), mPanVelocity.y());
+    if (boosted > maxSpeed)
+        mPanVelocity *= maxSpeed / boosted;
+
+    mFlingClock.restart();
+    mFlingTimer->start();
+}
+
+void UBBoardView::stopFling()
+{
+    if (mFlingTimer)
+        mFlingTimer->stop();
+
+    mPanVelocity = QPointF(0, 0);
 }
 
 void UBBoardView::tabletEvent (QTabletEvent * event)
@@ -1634,8 +1741,10 @@ void UBBoardView::updateContinuousSceneRect()
     // scrollbars to exactly the page box, which makes it impossible to pan the
     // document sideways or overscroll past the first/last page the way the
     // single-page mode allows.
-    const qreal padX = page.width();
-    const qreal padY = page.height();
+    // Half again as much room as the page itself on every side, so oversized
+    // pasted content stays reachable.
+    const qreal padX = page.width() * 1.5;
+    const qreal padY = page.height() * 1.5;
 
     setSceneRect(QRectF(-page.width() / 2.0 - padX,
                         top - padY,
@@ -1789,6 +1898,56 @@ void UBBoardView::promoteToPage(int target)
     mController->notifyPageSelectionChanged();
 
     mSwappingScene = false;
+}
+
+bool UBBoardView::goToPage(int target)
+{
+    if (!mContinuousScroll || !mController)
+        return false;
+
+    auto doc = mController->selectedDocument();
+
+    if (!doc || doc->pageCount() <= 0)
+        return false;
+
+    target = qBound(0, target, doc->pageCount() - 1);
+    const int before = mController->activeSceneIndex();
+
+    stopFling();
+
+    // Previous/Next used to go through setActiveDocumentScene() directly,
+    // which resets the view for a SINGLE page: it never refreshed the strip's
+    // scene rect, so the scrollbars still described the old page's position
+    // and the jump was clamped away -- the button looked dead, but only once
+    // the teacher had scrolled off the position the strip was built for.
+    promoteToPage(target);
+
+    if (scene())
+    {
+        const QSize page = scene()->nominalSize();
+        const qreal scale = transform().m11();
+
+        if (page.isValid() && scale > 0.0)
+        {
+            // The live page sits at the origin; put its top edge at the top.
+            const qreal topY = -page.height() / 2.0 + (viewport()->height() / scale) / 2.0;
+            centerOn(QPointF(0, topY));
+        }
+    }
+
+    mController->notifyPageSelectionChanged();
+
+    QFile f("C:/openboard-fork/last-startup.log");
+    if (f.open(QIODevice::Append | QIODevice::Text))
+    {
+        QTextStream ts(&f);
+        ts << "PageNav: " << before << " -> " << mController->activeSceneIndex()
+           << " (asked " << target << ") vsb=[" << verticalScrollBar()->minimum()
+           << "," << verticalScrollBar()->maximum() << "] val=" << verticalScrollBar()->value()
+           << Qt::endl;
+    }
+
+    return true;
 }
 
 // Promote whichever page now sits under the viewport centre to be the live scene.
@@ -2002,7 +2161,15 @@ QGraphicsItem* UBBoardView::touchDirectTargetAt(const QPointF& scenePos)
 
     for (QGraphicsItem* it : hits)
     {
-        if (dynamic_cast<DelegateButton*>(it) || dynamic_cast<UBGraphicsDelegateFrame*>(it))
+        // Geometry instruments included: their rotate/resize handlers work
+        // from lastPos(), which only the direct dispatcher fills in.
+        if (dynamic_cast<DelegateButton*>(it)
+            || dynamic_cast<UBGraphicsDelegateFrame*>(it)
+            || dynamic_cast<UBGraphicsRuler*>(it)
+            || dynamic_cast<UBGraphicsProtractor*>(it)
+            || dynamic_cast<UBGraphicsCompass*>(it)
+            || dynamic_cast<UBGraphicsTriangle*>(it)
+            || dynamic_cast<UBGraphicsAxes*>(it))
             return it;
 
         // A widget's frame surrounds AND underlies it, so the frame is still in
@@ -2062,6 +2229,12 @@ bool UBBoardView::dispatchToForkItem(QEvent::Type type, const QPointF& scenePos,
 
 void UBBoardView::mousePressEvent (QMouseEvent *event)
 {
+    // A real press means the teacher wants control back. NOT a synthesized
+    // one: Windows manufactures a mouse press from the touch that just lifted,
+    // and that arrived a few ms into the coast and killed every flick.
+    if (event->source() == Qt::MouseEventNotSynthesized)
+        stopFling();
+
     // WistOpenboard fork: in continuous mode a press may land on a page that
     // is only painted as a cached pixmap. Promote it to the live scene first so
     // the stroke goes to the page the teacher actually touched.
@@ -3230,8 +3403,11 @@ void UBBoardView::dropEvent (QDropEvent *event)
 
 void UBBoardView::resizeEvent (QResizeEvent * event)
 {
-    const qreal maxWidth = width () * 10;
-    const qreal maxHeight = height () * 10;
+    // WistOpenboard fork: 10x the view was not enough working space around a
+    // page -- pasting a chart wider than the page left part of it beyond the
+    // scrollable area, with no way to pan to it. Raised by half.
+    const qreal maxWidth = width () * 15;
+    const qreal maxHeight = height () * 15;
 
     setSceneRect (-(maxWidth / 2), -(maxHeight / 2), maxWidth, maxHeight);
     centerOn (0, 0);

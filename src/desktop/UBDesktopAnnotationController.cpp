@@ -416,6 +416,26 @@ void UBDesktopAnnotationController::stylusToolChanged(int tool)
 }
 
 
+namespace {
+    bool sLibraryDragActive = false;
+}
+
+void UBDesktopAnnotationController::setLibraryDragActive(bool active)
+{
+    sLibraryDragActive = active;
+
+    if (UBApplication::applicationController)
+    {
+        if (UBDesktopAnnotationController* c = UBApplication::applicationController->uninotesController())
+            c->updateBackground();
+    }
+}
+
+bool UBDesktopAnnotationController::libraryDragActive()
+{
+    return sLibraryDragActive;
+}
+
 void UBDesktopAnnotationController::updateBackground()
 {
     QBrush newBrush;
@@ -437,7 +457,11 @@ void UBDesktopAnnotationController::updateBackground()
         // alpha=4 (imperceptible tint, registers as a real drop target so
         // drag-drop into the overlay works).
         const int currentTool = UBDrawingController::drawingController()->stylusTool();
-        const bool selectorPassthrough = (currentTool == UBStylusTool::Selector);
+        // A drag from the library suspends the pass-through: with alpha 0 the
+        // drop lands on whatever is behind the overlay (which is how tools
+        // dragged in Selector mode ended up on the board page instead).
+        const bool selectorPassthrough = (currentTool == UBStylusTool::Selector)
+                                         && !sLibraryDragActive;
 
         if (selectorPassthrough) {
             newBrush = QBrush(Qt::transparent);
