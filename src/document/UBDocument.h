@@ -56,6 +56,7 @@ public:
 
     void deletePages(QList<int> indexes);
     void duplicatePage(int index);
+    void rotatePage(int index);
     void movePage(int fromIndex, int toIndex);
     void copyPage(int fromIndex, std::shared_ptr<UBDocumentProxy> to, int toIndex);
     void insertPage(std::shared_ptr<UBGraphicsScene> scene, int index, bool persist = true, bool deleting = false);

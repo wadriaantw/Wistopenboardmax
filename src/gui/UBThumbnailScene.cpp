@@ -341,6 +341,7 @@ void UBThumbnailScene::reloadThumbnail(int pageIndex)
         {
             thumbnail->setPixmap(UBThumbnailAdaptor::get(mDocument->proxy(), pageIndex));
             arrangeThumbnails(pageIndex, pageIndex + 1);
+            thumbnail->adjustThumbnail();
         }
     }
 }

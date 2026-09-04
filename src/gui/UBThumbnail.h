@@ -61,6 +61,7 @@ public:
     void adjustThumbnail();
 
     static double heightForWidth(double width);
+    QRectF rotateButtonRect() const;
 
 protected:
     virtual QVariant itemChange(GraphicsItemChange change, const QVariant& value) override;

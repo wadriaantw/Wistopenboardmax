@@ -83,6 +83,10 @@ public:
     // Recompute the scrollable strip after the active page changes by any other
     // route (page buttons, thumbnail click, document switch).
     void refreshContinuousLayout();
+    void invalidateStripPixmap(int index) {
+        mStripPixmaps.remove(index);
+        mPageSizes.remove(index);
+    }
     bool isMultipleSelectionEnabled() { return mMultipleSelectionIsEnabled; }
 
     void setBoxing(const QMargins& margins);
@@ -269,8 +273,11 @@ private:
     // only the page nearest the viewport centre is ever a live scene.
     QHash<int, QPixmap> mStripPixmaps;
     QSet<int> mPendingStripPixmaps;
+    mutable QHash<int, QSize> mPageSizes;
     bool mSwappingScene = false;
 
+    QSize pageSize(int index) const;
+    QRectF continuousPageRect(int index) const;
     qreal continuousStride() const;
     void  updateContinuousSceneRect();
     int   pageIndexAtSceneY(qreal y) const;

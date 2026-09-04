@@ -23,9 +23,13 @@
 #include "UBDocument.h"
 
 #include "adaptors/UBThumbnailAdaptor.h"
+#include "board/UBBoardController.h"
+#include "board/UBBoardView.h"
 #include "core/UBApplication.h"
 #include "core/UBPersistenceManager.h"
 #include "document/UBDocumentController.h"
+#include "domain/UBGraphicsDelegateFrame.h"
+#include "domain/UBGraphicsScene.h"
 #include "gui/UBMainWindow.h"
 #include "gui/UBThumbnailScene.h"
 
@@ -108,6 +112,114 @@ void UBDocument::duplicatePage(int index)
     mProxy->setMetaData(UBSettings::documentUpdatedAt, UBStringUtils::toUtcIsoDateTime(now));
 
     emit UBPersistenceManager::persistenceManager()->documentSceneDuplicated(mProxy, index + 1);
+}
+
+void UBDocument::rotatePage(int index)
+{
+    if (!mProxy || index < 0 || index >= mProxy->pageCount())
+        return;
+
+    std::shared_ptr<UBGraphicsScene> scene;
+    bool isActiveScene = false;
+
+    if (UBApplication::boardController
+        && UBApplication::boardController->selectedDocument() == mProxy
+        && UBApplication::boardController->activeSceneIndex() == index)
+    {
+        scene = UBApplication::boardController->activeScene();
+        isActiveScene = true;
+    }
+    else
+    {
+        scene = UBPersistenceManager::persistenceManager()->loadDocumentScene(mProxy, index);
+    }
+
+    if (!scene)
+        return;
+
+    // Deselect all items so selection frames/handles don't get stuck or confused
+    scene->deselectAllItems();
+
+    // Rotate nominal page size by swapping width and height
+    QSize oldSize = scene->nominalSize();
+    if (!oldSize.isValid())
+        oldSize = mProxy->defaultDocumentSize();
+    if (!oldSize.isValid())
+        oldSize = UBSettings::settings()->pageSize->get().toSize();
+
+    QSize newSize(oldSize.height(), oldSize.width());
+    scene->setNominalSize(newSize, false);
+
+    // Rotate all top-level scene items 90 degrees clockwise around origin (0, 0)
+    QTransform R;
+    R.rotate(90);
+
+    foreach (QGraphicsItem* item, scene->items())
+    {
+        if (item->parentItem() != nullptr)
+            continue;
+
+        if (dynamic_cast<UBGraphicsDelegateFrame*>(item))
+            continue;
+
+        QTransform newTransform = item->sceneTransform() * R;
+        item->setPos(0, 0);
+        item->setTransform(newTransform);
+    }
+
+    scene->update();
+    scene->setModified(true);
+
+    // Save rotated scene to disk
+    UBPersistenceManager::persistenceManager()->persistDocumentScene(mProxy, scene, index);
+
+    // Re-generate and save the thumbnail
+    UBThumbnailAdaptor::persistScene(mProxy, scene, index, true);
+
+    // Reload the thumbnail in the sidebar
+    if (mThumbnailScene)
+        mThumbnailScene->reloadThumbnail(index);
+
+    // Update the live board view
+    if (UBApplication::boardController)
+    {
+        UBBoardView* view = UBApplication::boardController->controlView();
+        if (view)
+        {
+            view->invalidateStripPixmap(index);
+            view->refreshContinuousLayout();
+            view->viewport()->update();
+        }
+
+        if (isActiveScene)
+        {
+            UBApplication::boardController->adjustDisplayViews();
+            if (view)
+            {
+                if (view->isContinuousScroll())
+                {
+                    const QSize page = scene->nominalSize();
+                    const qreal scale = view->transform().m11();
+                    if (page.isValid() && scale > 0.0)
+                    {
+                        const qreal topY = -page.height() / 2.0 + (view->viewport()->height() / scale) / 2.0;
+                        view->centerOn(QPointF(0, topY));
+                    }
+                    else
+                    {
+                        view->centerOn(0, 0);
+                    }
+                }
+                else
+                {
+                    view->centerOn(0, 0);
+                }
+            }
+        }
+    }
+
+    QDateTime now = QDateTime::currentDateTime();
+    mProxy->setMetaData(UBSettings::documentUpdatedAt, UBStringUtils::toUtcIsoDateTime(now));
 }
 
 void UBDocument::movePage(int fromIndex, int toIndex)

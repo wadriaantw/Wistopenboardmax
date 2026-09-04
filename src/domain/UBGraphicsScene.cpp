@@ -3215,21 +3215,21 @@ QSizeF UBGraphicsScene::sceneSizeF() const
     }
 }
 
-void UBGraphicsScene::setNominalSize(const QSize& pSize)
+void UBGraphicsScene::setNominalSize(const QSize& pSize, bool updateDocumentDefault)
 {
     if (nominalSize() != pSize)
     {
         mNominalSize = pSize;
         updateBackground();
 
-        if(mDocument)
+        if (mDocument && updateDocumentDefault)
             mDocument->setDefaultDocumentSize(pSize);
     }
 }
 
-void UBGraphicsScene::setNominalSize(int pWidth, int pHeight)
+void UBGraphicsScene::setNominalSize(int pWidth, int pHeight, bool updateDocumentDefault)
 {
-     setNominalSize(QSize(pWidth, pHeight));
+     setNominalSize(QSize(pWidth, pHeight), updateDocumentDefault);
 }
 
 void UBGraphicsScene::setSelectedZLevel(QGraphicsItem * item)

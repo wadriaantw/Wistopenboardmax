@@ -190,16 +190,23 @@ void UBBoardThumbnailsView::mousePressEvent(QMouseEvent *event)
     // select page at event position
     UBThumbnail* item = dynamic_cast<UBThumbnail*>(itemAt(event->pos()));
 
-    if (item && item->sceneIndex() != UBApplication::boardController->activeSceneIndex())
+    if (item)
     {
-        UBApplication::boardController->persistViewPositionOnCurrentScene();
-        UBApplication::boardController->persistCurrentScene();
-        UBApplication::boardController->setActiveDocumentScene(item->sceneIndex());
-    }
-    else if (item)
-    {
-        // just make sure it is selected
-        item->setSelected(true);
+        if (UBApplication::boardController->controlView() && UBApplication::boardController->controlView()->isContinuousScroll())
+        {
+            UBApplication::boardController->controlView()->goToPage(item->sceneIndex());
+        }
+        else if (item->sceneIndex() != UBApplication::boardController->activeSceneIndex())
+        {
+            UBApplication::boardController->persistViewPositionOnCurrentScene();
+            UBApplication::boardController->persistCurrentScene();
+            UBApplication::boardController->setActiveDocumentScene(item->sceneIndex());
+        }
+        else
+        {
+            // just make sure it is selected
+            item->setSelected(true);
+        }
     }
     else if (!selection.isEmpty())
     {

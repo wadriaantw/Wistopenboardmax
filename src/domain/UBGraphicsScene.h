@@ -299,9 +299,9 @@ class UBGraphicsScene: public UBCoreGraphicsScene, public UBItem, public std::en
         QSize sceneSize();
         QSizeF sceneSizeF() const;
 
-        void setNominalSize(const QSize& pSize);
+        void setNominalSize(const QSize& pSize, bool updateDocumentDefault = true);
 
-        void setNominalSize(int pWidth, int pHeight);
+        void setNominalSize(int pWidth, int pHeight, bool updateDocumentDefault = true);
 
         qreal changeZLevelTo(QGraphicsItem *item, UBZLayerController::moveDestination dest, bool addUndo=false);
 

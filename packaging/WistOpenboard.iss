@@ -17,7 +17,7 @@
 ; ===========================================================================
 
 #define MyAppName        "WistOpenboard"
-#define MyAppVersion     "2026.18"
+#define MyAppVersion     "2026.19"
 #define MyAppPublisher   "Adriaan Willemse"
 #define MyAppExeName     "OpenBoard.exe"
 #define MyAppId          "{{C9F5C5BD-2026-4E1A-9F88-D7E4A8C14BDE}"

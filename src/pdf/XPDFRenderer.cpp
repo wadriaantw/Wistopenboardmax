@@ -30,6 +30,7 @@
 #include "XPDFRenderer.h"
 
 #include <QtGui>
+#include <cmath>
 
 #include <frameworks/UBPlatformUtils.h>
 #include <poppler/cpp/poppler-version.h>
@@ -285,8 +286,8 @@ void XPDFRenderer::render(QPainter *p, int pageNumber, bool const cacheAllowed, 
     {
         if (m_perPagepdfZoomCache.contains(pageNumber) && m_perPagepdfZoomCache[pageNumber].size() > 0 && cacheAllowed)
         {
-            qreal xscale = p->worldTransform().m11();
-            qreal yscale = p->worldTransform().m22();
+            qreal xscale = std::hypot(p->worldTransform().m11(), p->worldTransform().m12());
+            qreal yscale = std::hypot(p->worldTransform().m21(), p->worldTransform().m22());
             Q_ASSERT(qFuzzyCompare(xscale, yscale)); // Zoom equal in all axes expected.
             Q_ASSERT(xscale > 0.0); // Potential Div0 later if this assert fail.
 
@@ -372,15 +373,18 @@ void XPDFRenderer::render(QPainter *p, int pageNumber, bool const cacheAllowed, 
 
             p->setWorldTransform(savedTransform);
         } else {
-            qreal xscale = p->worldTransform().m11();
-            qreal yscale = p->worldTransform().m22();
+            qreal xscale = std::hypot(p->worldTransform().m11(), p->worldTransform().m12());
+            qreal yscale = std::hypot(p->worldTransform().m21(), p->worldTransform().m22());
 
             QImage *pdfImage = createPDFImageUncached(pageNumber, xscale, yscale, bounds);
             QTransform savedTransform = p->worldTransform();
-            p->resetTransform();
-            //qDebug() << "drawImage size=" << p->viewport() << "bounds" << bounds << "pdfImage" << pdfImage->size() << "savedTransform" << savedTransform.m11();
-            p->drawImage(QPointF(savedTransform.dx() + mSliceX, savedTransform.dy() + mSliceY), *pdfImage);
-            p->setWorldTransform(savedTransform);
+            if (xscale > 0.0 && yscale > 0.0)
+            {
+                QTransform newTransform = savedTransform.scale(1.0 / xscale, 1.0 / yscale);
+                p->setWorldTransform(newTransform);
+                p->drawImage(QPointF(mSliceX, mSliceY), *pdfImage);
+                p->setWorldTransform(savedTransform);
+            }
             delete pdfImage;
         }
     }

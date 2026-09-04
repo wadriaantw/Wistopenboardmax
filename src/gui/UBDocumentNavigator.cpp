@@ -394,10 +394,17 @@ void UBDocumentNavigator::mousePressEvent(QMouseEvent *event)
 
         if(mLastClickedThumbnail)
         {
-            UBApplication::boardController->persistViewPositionOnCurrentScene();
-            UBApplication::boardController->persistCurrentScene();
-            UBApplication::boardController->setActiveDocumentScene(mLastClickedThumbnail->sceneIndex());
-            UBApplication::boardController->centerOn(UBApplication::boardController->activeScene()->lastCenter());
+            if (UBApplication::boardController->controlView() && UBApplication::boardController->controlView()->isContinuousScroll())
+            {
+                UBApplication::boardController->controlView()->goToPage(mLastClickedThumbnail->sceneIndex());
+            }
+            else
+            {
+                UBApplication::boardController->persistViewPositionOnCurrentScene();
+                UBApplication::boardController->persistCurrentScene();
+                UBApplication::boardController->setActiveDocumentScene(mLastClickedThumbnail->sceneIndex());
+                UBApplication::boardController->centerOn(UBApplication::boardController->activeScene()->lastCenter());
+            }
         }
 
         mLongPressTimer.start();

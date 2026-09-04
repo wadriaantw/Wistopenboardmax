@@ -244,6 +244,22 @@ double UBThumbnail::heightForWidth(double width)
     return height + labelSpacing();
 }
 
+QRectF UBThumbnail::rotateButtonRect() const
+{
+    if (!mPixmapItem || mPixmapItem->pixmap().isNull())
+        return QRectF();
+
+    const auto pixmapSize = mPixmapItem->pixmap().size();
+    const auto scale = mPixmapItem->transform().m11();
+    const qreal renderedWidth = pixmapSize.width() * scale;
+
+    qreal rx = mPixmapItem->x() + renderedWidth - UBThumbnailUI::ICONSIZE;
+    if (rx < mPixmapItem->x())
+        rx = mPixmapItem->x();
+
+    return QRectF(rx, 0, UBThumbnailUI::ICONSIZE, UBThumbnailUI::ICONSIZE);
+}
+
 QVariant UBThumbnail::itemChange(GraphicsItemChange change, const QVariant& value)
 {
     if (change == QGraphicsItem::ItemSelectedHasChanged)
@@ -281,6 +297,13 @@ void UBThumbnail::mousePressEvent(QGraphicsSceneMouseEvent* event)
     {
         using namespace UBThumbnailUI;
 
+        if (rotateButtonRect().contains(event->pos()))
+        {
+            event->accept();
+            thumbnailScene->document()->rotatePage(mIndex);
+            return;
+        }
+
         const auto p = event->pos() - mPixmapItem->pos();
 
         if (mDeletable && getIcon("close")->triggered(p))
@@ -309,8 +332,30 @@ void UBThumbnail::paint(QPainter* painter, const QStyleOptionGraphicsItem* optio
         painter->drawRect(selectionRect);
     }
 
+    // paint the rotate button in the corner of each preview page
+    const auto rRect = rotateButtonRect();
+    if (!rRect.isEmpty())
+    {
+        using namespace UBThumbnailUI;
+        const UBThumbnailUIIcon* rotateThumbnailIcon = UBThumbnailUI::getIcon("rotate");
+        if (rotateThumbnailIcon)
+        {
+            if (mEditable || isSelected())
+            {
+                painter->drawPixmap(rRect.x(), rRect.y(), rRect.width(), rRect.height(), *rotateThumbnailIcon);
+            }
+            else
+            {
+                painter->save();
+                painter->setOpacity(0.85);
+                painter->drawPixmap(rRect.x(), rRect.y(), rRect.width(), rRect.height(), *rotateThumbnailIcon);
+                painter->restore();
+            }
+        }
+    }
+
     // paint the buttons
-    if (mEditable)
+    if (mEditable || isSelected())
     {
         using namespace UBThumbnailUI; //should be reworked so icons' scale adapts to what's needed
         const UBThumbnailUIIcon& closeThumbnailIcon = *UBThumbnailUI::getIcon(mDeletable ? "close" : "closeDisabled");
@@ -404,6 +449,8 @@ void UBThumbnailUI::_private::initCatalog()
     addIcon("closeDisabled", 0);
 
     addIcon("duplicate", 1);
+
+    addIcon("rotate", 0);
 
     addIcon("moveUp", 2);
     addIcon("moveUpDisabled", 2);

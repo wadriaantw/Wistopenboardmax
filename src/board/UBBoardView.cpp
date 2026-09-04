@@ -936,7 +936,9 @@ bool UBBoardView::event (QEvent * e)
                 // Held still before lifting: that is a stop, not a flick.
                 if (span > 0 && sinceLast < 200)
                 {
-                    mPanVelocity = (last.first - first.first) / qreal(span);
+                    // WistOpenboard fork: Auto-scroll (fling) is limited to vertical only.
+                    // Horizontally stops immediately when finger is lifted.
+                    mPanVelocity = QPointF(0.0, (last.first.y() - first.first.y()) / qreal(span));
                     startFling();
                 }
 
@@ -968,7 +970,10 @@ bool UBBoardView::event (QEvent * e)
 
 void UBBoardView::startFling()
 {
-    const qreal speed = std::hypot(mPanVelocity.x(), mPanVelocity.y());
+    // WistOpenboard fork: Fling auto-scroll is limited to vertical only.
+    // Horizontal stops when finger is lifted.
+    mPanVelocity.setX(0.0);
+    const qreal speed = qAbs(mPanVelocity.y());
 
     if (speed < 0.15)                       // a slow lift is a stop, not a flick
         return;
@@ -985,28 +990,28 @@ void UBBoardView::startFling()
             qreal dt = qreal(mFlingClock.restart());
             dt = qBound(1.0, dt, 120.0);
 
-            const QPointF step = mPanVelocity * dt;
+            const qreal stepY = mPanVelocity.y() * dt;
 
-            horizontalScrollBar()->setValue(horizontalScrollBar()->value() - qRound(step.x()));
-            verticalScrollBar()->setValue(verticalScrollBar()->value() - qRound(step.y()));
+            // Only auto-scroll vertically; horizontal position remains where finger lifted
+            verticalScrollBar()->setValue(verticalScrollBar()->value() - qRound(stepY));
 
             // Friction per 16 ms, scaled to the time that actually passed.
-            mPanVelocity *= qPow(0.985, dt / 16.0);
+            mPanVelocity.ry() *= qPow(0.985, dt / 16.0);
 
-            if (std::hypot(mPanVelocity.x(), mPanVelocity.y()) < 0.04)
+            if (qAbs(mPanVelocity.y()) < 0.04)
                 stopFling();
         });
     }
 
     // A flick should feel decisive: the measured speed is averaged over the
     // last 100 ms, which includes the finger already slowing as it lifts.
-    mPanVelocity *= 1.6;
+    mPanVelocity.ry() *= 1.6;
 
     // Cap so a violent swipe cannot fire the page off into the distance.
     const qreal maxSpeed = 10.0;
-    const qreal boosted = std::hypot(mPanVelocity.x(), mPanVelocity.y());
+    const qreal boosted = qAbs(mPanVelocity.y());
     if (boosted > maxSpeed)
-        mPanVelocity *= maxSpeed / boosted;
+        mPanVelocity.setY(mPanVelocity.y() > 0 ? maxSpeed : -maxSpeed);
 
     mFlingClock.restart();
     mFlingTimer->start();
@@ -1688,27 +1693,165 @@ static const qreal sContinuousPageGap = 40.0;   // scene units between pages
 
 qreal UBBoardView::continuousStride() const
 {
-    auto s = const_cast<UBBoardView*>(this)->scene();
-    if (!s)
+    if (!mController)
         return 0.0;
-
-    const QSize nominal = s->nominalSize();
+    const QSize nominal = pageSize(mController->activeSceneIndex());
     if (!nominal.isValid() || nominal.height() <= 0)
         return 0.0;
 
     return nominal.height() + sContinuousPageGap;
 }
 
-// Page j is drawn (j - activeIndex) strides below the active page, whose own
-// scene coordinates are centred on the origin. Invert that to go from a scene
-// y coordinate back to a page index.
+QSize UBBoardView::pageSize(int index) const
+{
+    if (!mController)
+        return QSize();
+
+    auto doc = mController->selectedDocument();
+    if (!doc || index < 0 || index >= doc->pageCount())
+        return QSize();
+
+    if (index == mController->activeSceneIndex())
+    {
+        auto curScene = const_cast<UBBoardView*>(this)->scene();
+        if (curScene)
+        {
+            const QSize s = curScene->nominalSize();
+            if (s.isValid() && s.width() > 0 && s.height() > 0)
+            {
+                mPageSizes[index] = s;
+                return s;
+            }
+        }
+    }
+
+    if (mPageSizes.contains(index))
+    {
+        const QSize s = mPageSizes.value(index);
+        if (s.isValid() && s.width() > 0 && s.height() > 0)
+            return s;
+    }
+
+    auto pageScene = UBPersistenceManager::persistenceManager()->loadDocumentScene(doc, index, false);
+    if (pageScene)
+    {
+        const QSize s = pageScene->nominalSize();
+        if (s.isValid() && s.width() > 0 && s.height() > 0)
+        {
+            mPageSizes[index] = s;
+            return s;
+        }
+    }
+
+    const QSize def = doc->defaultDocumentSize();
+    if (def.isValid() && def.width() > 0 && def.height() > 0)
+    {
+        mPageSizes[index] = def;
+        return def;
+    }
+
+    const QSize fallback(1024, 768);
+    mPageSizes[index] = fallback;
+    return fallback;
+}
+
+QRectF UBBoardView::continuousPageRect(int index) const
+{
+    if (!mController)
+        return QRectF();
+
+    auto doc = mController->selectedDocument();
+    if (!doc || index < 0 || index >= doc->pageCount())
+        return QRectF();
+
+    const int active = mController->activeSceneIndex();
+    const QSize activeSz = pageSize(active);
+    const qreal activeH = activeSz.isValid() ? activeSz.height() : 768.0;
+
+    if (index == active)
+    {
+        const qreal w = activeSz.isValid() ? activeSz.width() : 1024.0;
+        return QRectF(-w / 2.0, -activeH / 2.0, w, activeH);
+    }
+
+    if (index > active)
+    {
+        qreal currentTop = activeH / 2.0 + sContinuousPageGap;
+        for (int k = active + 1; k < index; ++k)
+        {
+            const QSize sz = pageSize(k);
+            const qreal h = sz.isValid() ? sz.height() : 768.0;
+            currentTop += h + sContinuousPageGap;
+        }
+        const QSize targetSz = pageSize(index);
+        const qreal w = targetSz.isValid() ? targetSz.width() : 1024.0;
+        const qreal h = targetSz.isValid() ? targetSz.height() : 768.0;
+        return QRectF(-w / 2.0, currentTop, w, h);
+    }
+    else
+    {
+        qreal currentBottom = -activeH / 2.0 - sContinuousPageGap;
+        for (int k = active - 1; k > index; --k)
+        {
+            const QSize sz = pageSize(k);
+            const qreal h = sz.isValid() ? sz.height() : 768.0;
+            currentBottom -= (h + sContinuousPageGap);
+        }
+        const QSize targetSz = pageSize(index);
+        const qreal w = targetSz.isValid() ? targetSz.width() : 1024.0;
+        const qreal h = targetSz.isValid() ? targetSz.height() : 768.0;
+        return QRectF(-w / 2.0, currentBottom - h, w, h);
+    }
+}
+
 int UBBoardView::pageIndexAtSceneY(qreal y) const
 {
-    const qreal stride = continuousStride();
-    if (stride <= 0.0 || !mController)
+    if (!mController)
         return -1;
 
-    return mController->activeSceneIndex() + qRound(y / stride);
+    auto doc = mController->selectedDocument();
+    if (!doc || doc->pageCount() <= 0)
+        return -1;
+
+    const int count = doc->pageCount();
+    const int active = qBound(0, mController->activeSceneIndex(), count - 1);
+
+    const QRectF activeRect = continuousPageRect(active);
+
+    // Hysteresis of 10 scene units around boundaries prevents rapid fluttering
+    // when scrolling sits near the split between two pages.
+    const qreal hysteresis = 10.0;
+    const qreal boundaryDown = activeRect.bottom() + sContinuousPageGap * 0.5 + hysteresis;
+    const qreal boundaryUp   = activeRect.top()    - sContinuousPageGap * 0.5 - hysteresis;
+
+    if (y > boundaryDown)
+    {
+        for (int j = active + 1; j < count; ++j)
+        {
+            if (j == count - 1)
+                return j;
+            const QRectF r = continuousPageRect(j);
+            const qreal nextBoundary = r.bottom() + sContinuousPageGap * 0.5;
+            if (y <= nextBoundary)
+                return j;
+        }
+        return count - 1;
+    }
+    else if (y < boundaryUp)
+    {
+        for (int j = active - 1; j >= 0; --j)
+        {
+            if (j == 0)
+                return 0;
+            const QRectF r = continuousPageRect(j);
+            const qreal prevBoundary = r.top() - sContinuousPageGap * 0.5;
+            if (y >= prevBoundary)
+                return j;
+        }
+        return 0;
+    }
+
+    return active;
 }
 
 void UBBoardView::updateContinuousSceneRect()
@@ -1724,32 +1867,42 @@ void UBBoardView::updateContinuousSceneRect()
     }
 
     auto doc = mController->selectedDocument();
-    const QSize page = s->nominalSize();
-    const qreal stride = continuousStride();
-
-    if (!doc || !page.isValid() || stride <= 0.0)
+    if (!doc || doc->pageCount() <= 0)
         return;
 
     const int count = doc->pageCount();
-    if (count <= 0)
-        return;
+    const QRectF firstRect = continuousPageRect(0);
+    const QRectF lastRect  = continuousPageRect(count - 1);
 
-    const qreal top    = -page.height() / 2.0 - mController->activeSceneIndex() * stride;
-    const qreal height = (count - 1) * stride + page.height();
+    const qreal top    = firstRect.top();
+    const qreal bottom = lastRect.bottom();
+    const qreal totalH = bottom - top;
 
     // Pad generously around the strip. Without this the scene rect clamps the
     // scrollbars to exactly the page box, which makes it impossible to pan the
     // document sideways or overscroll past the first/last page the way the
     // single-page mode allows.
-    // Half again as much room as the page itself on every side, so oversized
-    // pasted content stays reachable.
-    const qreal padX = page.width() * 1.5;
-    const qreal padY = page.height() * 1.5;
+    // Find maximum page width and height across all pages for padding.
+    qreal maxW = 0.0;
+    qreal maxH = 0.0;
+    for (int i = 0; i < count; ++i)
+    {
+        const QSize sz = pageSize(i);
+        if (sz.width() > maxW)
+            maxW = sz.width();
+        if (sz.height() > maxH)
+            maxH = sz.height();
+    }
+    if (maxW <= 0.0) maxW = 1024.0;
+    if (maxH <= 0.0) maxH = 768.0;
 
-    setSceneRect(QRectF(-page.width() / 2.0 - padX,
+    const qreal padX = maxW * 1.5;
+    const qreal padY = maxH * 1.5;
+
+    setSceneRect(QRectF(-maxW / 2.0 - padX,
                         top - padY,
-                        page.width() + 2 * padX,
-                        height + 2 * padY));
+                        maxW + 2 * padX,
+                        totalH + 2 * padY));
 }
 
 // Render page `index` off-screen into the pixmap cache. Never called from the
@@ -1771,6 +1924,8 @@ void UBBoardView::ensureStripPixmap(int index)
     const QSize nominal = pageScene->nominalSize();
     if (!nominal.isValid() || nominal.width() <= 0)
         return;
+
+    mPageSizes[index] = nominal;
 
     const int targetW = qBound(320, viewport()->width(), 2048);
     const int targetH = qRound(targetW * qreal(nominal.height()) / qreal(nominal.width()));
@@ -1798,10 +1953,7 @@ void UBBoardView::drawContinuousNeighbours(QPainter* painter, const QRectF& rect
         return;
 
     auto doc = mController->selectedDocument();
-    const QSize page = s->nominalSize();
-    const qreal stride = continuousStride();
-
-    if (!doc || !page.isValid() || stride <= 0.0)
+    if (!doc || doc->pageCount() <= 0)
         return;
 
     const int active = mController->activeSceneIndex();
@@ -1822,9 +1974,7 @@ void UBBoardView::drawContinuousNeighbours(QPainter* painter, const QRectF& rect
         if (j == active)
             continue;                       // the live scene paints itself
 
-        const QRectF pageRect(-page.width() / 2.0,
-                              -page.height() / 2.0 + (j - active) * stride,
-                              page.width(), page.height());
+        const QRectF pageRect = continuousPageRect(j);
 
         if (!pageRect.intersects(rect))
             continue;
@@ -1865,8 +2015,7 @@ void UBBoardView::promoteToPage(int target)
         return;
 
     auto doc = mController->selectedDocument();
-    const qreal stride = continuousStride();
-    if (!doc || stride <= 0.0 || doc->pageCount() <= 0)
+    if (!doc || doc->pageCount() <= 0)
         return;
 
     target = qBound(0, target, doc->pageCount() - 1);
@@ -1883,13 +2032,16 @@ void UBBoardView::promoteToPage(int target)
     // zoom to whatever was last saved on the page being scrolled into.
     const QTransform keptTransform = transform();
     const QPointF centre = mapToScene(viewport()->rect().center());
-    const QPointF anchor = centre - QPointF(0, (target - active) * stride);
+    const QPointF targetCenter = continuousPageRect(target).center();
+    const QPointF anchor = centre - targetCenter;
 
     mController->persistViewPositionOnCurrentScene();
     mController->setActiveDocumentScene(target);
 
     setTransform(keptTransform);
     mStripPixmaps.remove(target);           // it is the live scene now
+    if (scene())
+        mPageSizes[target] = scene()->nominalSize();
     updateContinuousSceneRect();
     centerOn(anchor);
 
@@ -1980,6 +2132,7 @@ void UBBoardView::setContinuousScroll(bool enabled)
     setVerticalScrollBarPolicy(enabled ? Qt::ScrollBarAsNeeded : Qt::ScrollBarAlwaysOff);
 
     mStripPixmaps.clear();
+    mPageSizes.clear();
     updateContinuousSceneRect();
 
     if (scene())

@@ -2364,6 +2364,18 @@ void UBBoardController::nextScene()
 
 void UBBoardController::firstScene()
 {
+    if (mControlView)
+        mControlView->stopKineticScroll();
+
+    if (mControlView && mControlView->isContinuousScroll() && mActiveSceneIndex > 0)
+    {
+        if (mControlView->goToPage(0))
+        {
+            updateActionStates();
+            return;
+        }
+    }
+
     if (mActiveSceneIndex > 0)
     {
         QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
@@ -2378,6 +2390,19 @@ void UBBoardController::firstScene()
 
 void UBBoardController::lastScene()
 {
+    if (mControlView)
+        mControlView->stopKineticScroll();
+
+    if (mControlView && mControlView->isContinuousScroll()
+        && selectedDocument() && mActiveSceneIndex < selectedDocument()->pageCount() - 1)
+    {
+        if (mControlView->goToPage(selectedDocument()->pageCount() - 1))
+        {
+            updateActionStates();
+            return;
+        }
+    }
+
     if (mActiveSceneIndex < selectedDocument()->pageCount() - 1)
     {
         QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
