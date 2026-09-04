@@ -378,6 +378,8 @@ class UBBoardController : public UBDocumentContainer
         QToolButton* mZenPrevButton = nullptr;   // WistOpenboard fork
         QToolButton* mZenNextButton = nullptr;   // WistOpenboard fork
         QToolButton* mZenPageChip = nullptr;     // WistOpenboard fork
+        QToolButton* mZenUndoButton = nullptr;   // WistOpenboard fork
+        QToolButton* mZenRedoButton = nullptr;   // WistOpenboard fork
         bool mInInit = false;
         bool mInitialIsFreshlyCreated = true;
         bool mCleanupDone;

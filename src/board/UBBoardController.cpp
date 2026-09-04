@@ -1303,6 +1303,10 @@ void UBBoardController::setupToolbar()
                 mZenNextButton->setVisible(!visible);
             if (mZenPageChip)
                 mZenPageChip->setVisible(!visible);
+            if (mZenUndoButton)
+                mZenUndoButton->setVisible(true);
+            if (mZenRedoButton)
+                mZenRedoButton->setVisible(true);
         };
 
         connect(chromeButton, &QToolButton::clicked, this, [this, setChromeVisible]() {
@@ -1313,7 +1317,7 @@ void UBBoardController::setupToolbar()
             setChromeVisible(false);
 
         // Page arrows either side of the chrome button: previous / next page
-        // without opening any chrome.
+        // without opening any chrome. Discrete 8px chevron.
         auto makeZenArrow = [this](bool pointsRight) {
             QToolButton* arrowButton = new QToolButton(mControlContainer);
             arrowButton->setObjectName("ubZenChromeButton");
@@ -1327,13 +1331,13 @@ void UBBoardController::setupToolbar()
                 QPainter p(&arrowPixmap);
                 p.setRenderHint(QPainter::Antialiasing, true);
                 QPen pen(UBTheme::ink());
-                pen.setWidthF(2.0);
+                pen.setWidthF(1.8);
                 pen.setCapStyle(Qt::RoundCap);
                 pen.setJoinStyle(Qt::RoundJoin);
                 p.setPen(pen);
                 const qreal dir = pointsRight ? 1.0 : -1.0;
-                p.drawLine(QPointF(17 - dir * 2.5, 11), QPointF(17 + dir * 2.5, 17));
-                p.drawLine(QPointF(17 + dir * 2.5, 17), QPointF(17 - dir * 2.5, 23));
+                p.drawLine(QPointF(17 - dir * 1.8, 13), QPointF(17 + dir * 1.8, 17));
+                p.drawLine(QPointF(17 + dir * 1.8, 17), QPointF(17 - dir * 1.8, 21));
             }
             QIcon arrowIcon;
             arrowIcon.addPixmap(arrowPixmap, QIcon::Normal);
@@ -1360,6 +1364,79 @@ void UBBoardController::setupToolbar()
         mZenNextButton = makeZenArrow(true);
         mZenNextButton->setToolTip(tr("Next page"));
         connect(mZenNextButton, &QToolButton::clicked, this, [this]() { nextScene(); });
+
+        // Discrete curved arrow for Undo / Redo in 34x34 zen circle
+        auto makeZenUndoRedoIcon = [](bool isRedo) {
+            auto renderPixmap = [isRedo](qreal opacity) {
+                QPixmap pix(34, 34);
+                pix.fill(Qt::transparent);
+                {
+                    QPainter p(&pix);
+                    p.setRenderHint(QPainter::Antialiasing, true);
+                    p.setOpacity(opacity);
+
+                    if (isRedo)
+                    {
+                        p.translate(34, 0);
+                        p.scale(-1, 1);
+                    }
+
+                    QPen pen(UBTheme::ink());
+                    pen.setWidthF(1.8);
+                    pen.setCapStyle(Qt::RoundCap);
+                    pen.setJoinStyle(Qt::RoundJoin);
+                    p.setPen(pen);
+                    p.setBrush(Qt::NoBrush);
+
+                    // Discrete curved arrow (radius 5.0, centered at (17, 17))
+                    QPainterPath arc;
+                    arc.moveTo(22.0, 20.5);
+                    arc.arcTo(QRectF(12.0, 12.5, 10.0, 10.0), -35, 205);
+                    p.drawPath(arc);
+
+                    // Delicate arrowhead
+                    p.drawLine(QPointF(12.5, 16.5), QPointF(11.5, 20.0));
+                    p.drawLine(QPointF(12.5, 16.5), QPointF(16.0, 17.5));
+                }
+                return pix;
+            };
+
+            QIcon icon;
+            icon.addPixmap(renderPixmap(1.0), QIcon::Normal);
+            icon.addPixmap(renderPixmap(0.3), QIcon::Disabled);
+            return icon;
+        };
+
+        // Undo / Redo buttons flanking the chrome button: visible in both full screen and normal view
+        mZenUndoButton = new QToolButton(mControlContainer);
+        mZenUndoButton->setObjectName("ubZenChromeButton");
+        mZenUndoButton->setCursor(Qt::PointingHandCursor);
+        mZenUndoButton->setFixedSize(34, 34);
+        mZenUndoButton->setStyleSheet(UBBoardController::zenButtonCss());
+        mZenUndoButton->setIcon(makeZenUndoRedoIcon(false));
+        mZenUndoButton->setIconSize(QSize(34, 34));
+        mZenUndoButton->setToolTip(mMainWindow->actionUndo->toolTip());
+        mZenUndoButton->setEnabled(mMainWindow->actionUndo->isEnabled());
+        connect(mZenUndoButton, &QToolButton::clicked, mMainWindow->actionUndo, &QAction::trigger);
+        connect(mMainWindow->actionUndo, &QAction::changed, this, [this]() {
+            if (mZenUndoButton && mMainWindow)
+                mZenUndoButton->setEnabled(mMainWindow->actionUndo->isEnabled());
+        });
+
+        mZenRedoButton = new QToolButton(mControlContainer);
+        mZenRedoButton->setObjectName("ubZenChromeButton");
+        mZenRedoButton->setCursor(Qt::PointingHandCursor);
+        mZenRedoButton->setFixedSize(34, 34);
+        mZenRedoButton->setStyleSheet(UBBoardController::zenButtonCss());
+        mZenRedoButton->setIcon(makeZenUndoRedoIcon(true));
+        mZenRedoButton->setIconSize(QSize(34, 34));
+        mZenRedoButton->setToolTip(mMainWindow->actionRedo->toolTip());
+        mZenRedoButton->setEnabled(mMainWindow->actionRedo->isEnabled());
+        connect(mZenRedoButton, &QToolButton::clicked, mMainWindow->actionRedo, &QAction::trigger);
+        connect(mMainWindow->actionRedo, &QAction::changed, this, [this]() {
+            if (mZenRedoButton && mMainWindow)
+                mZenRedoButton->setEnabled(mMainWindow->actionRedo->isEnabled());
+        });
 
         // Page chip: "4 / 12" between the chrome button and the next arrow.
         // Tapping it opens (or closes) the page-thumbnails drawer.
@@ -1398,6 +1475,8 @@ void UBBoardController::setupToolbar()
         mZenChromeButton = chromeButton;
         positionZenButtons();
         chromeButton->show();
+        mZenUndoButton->show();
+        mZenRedoButton->show();
 
         // One-time onboarding hint: zen's conventions are invisible until told.
         if (zenOn && !UBSettings::settings()->appZenHintShown->get().toBool())
@@ -1426,6 +1505,8 @@ void UBBoardController::setupToolbar()
         mZenPrevButton->setVisible(mZenChromeHidden);
         mZenNextButton->setVisible(mZenChromeHidden);
         mZenPageChip->setVisible(mZenChromeHidden);
+        mZenUndoButton->setVisible(true);
+        mZenRedoButton->setVisible(true);
     }
 
     // WistOpenboard fork: the window title bar now provides minimise / maximise /
@@ -2281,28 +2362,50 @@ void UBBoardController::positionZenButtons()
 
     mZenChromeButton->move(cx - mZenChromeButton->width() / 2, y);
 
+    if (mZenUndoButton)
+    {
+        const int undoX = cx - mZenChromeButton->width() / 2 - gap - mZenUndoButton->width();
+        mZenUndoButton->move(undoX, y);
+        mZenUndoButton->raise();
+    }
+
+    if (mZenRedoButton)
+    {
+        const int redoX = cx + mZenChromeButton->width() / 2 + gap;
+        mZenRedoButton->move(redoX, y);
+        mZenRedoButton->raise();
+    }
+
+    if (mZenNextButton)
+    {
+        int nextX = cx + mZenChromeButton->width() / 2 + gap;
+        if (mZenRedoButton)
+            nextX += mZenRedoButton->width() + gap;
+
+        mZenNextButton->move(nextX, y);
+        mZenNextButton->raise();
+    }
+
     if (mZenPageChip)
     {
-        mZenPageChip->move(cx - mZenChromeButton->width() / 2 - gap - mZenPageChip->width(),
-                           y + (mZenChromeButton->height() - mZenPageChip->height()) / 2);
+        int chipX = cx - mZenChromeButton->width() / 2 - gap - mZenPageChip->width();
+        if (mZenUndoButton)
+            chipX -= gap + mZenUndoButton->width();
+
+        mZenPageChip->move(chipX, y + (mZenChromeButton->height() - mZenPageChip->height()) / 2);
         mZenPageChip->raise();
     }
 
     if (mZenPrevButton)
     {
-        int x = cx - mZenChromeButton->width() / 2 - gap - mZenPrevButton->width();
-
+        int prevX = cx - mZenChromeButton->width() / 2 - gap - mZenPrevButton->width();
+        if (mZenUndoButton)
+            prevX -= gap + mZenUndoButton->width();
         if (mZenPageChip)
-            x -= gap + mZenPageChip->width();
+            prevX -= gap + mZenPageChip->width();
 
-        mZenPrevButton->move(x, y);
+        mZenPrevButton->move(prevX, y);
         mZenPrevButton->raise();
-    }
-
-    if (mZenNextButton)
-    {
-        mZenNextButton->move(cx + mZenChromeButton->width() / 2 + gap, y);
-        mZenNextButton->raise();
     }
 
     mZenChromeButton->raise();
@@ -3309,6 +3412,10 @@ void UBBoardController::rebindUndoStack(QUndoStack* newStack)
         mMainWindow->actionUndo->setEnabled(newStack->canUndo());
         mMainWindow->actionRedo->setEnabled(newStack->canRedo());
     }
+    if (mZenUndoButton)
+        mZenUndoButton->setEnabled(newStack->canUndo());
+    if (mZenRedoButton)
+        mZenRedoButton->setEnabled(newStack->canRedo());
 }
 
 void UBBoardController::syncCurrentTab()
@@ -3630,6 +3737,10 @@ void UBBoardController::undoRedoStateChange(bool canUndo)
 
     mMainWindow->actionUndo->setEnabled(UBApplication::undoStack->canUndo());
     mMainWindow->actionRedo->setEnabled(UBApplication::undoStack->canRedo());
+    if (mZenUndoButton)
+        mZenUndoButton->setEnabled(UBApplication::undoStack->canUndo());
+    if (mZenRedoButton)
+        mZenRedoButton->setEnabled(UBApplication::undoStack->canRedo());
 
     updateActionStates();
 }
