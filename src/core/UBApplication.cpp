@@ -109,16 +109,16 @@ UBApplication::UBApplication(const QString &id, int &argc, char **argv) : Single
     setOrganizationName("Open Education Foundation");
     setOrganizationDomain("oe-f.org");
     setApplicationName("OpenBoard");
+    // WistOpenboard fork: display name shown to user and window managers
+    setApplicationDisplayName(appDisplayName());
 
 #ifdef Q_OS_OSX
     // With Qt 6.9 on macOS 15 (at least), icons aren't shown in menus. This forces their display.
     QCoreApplication::setAttribute(Qt::AA_DontShowIconsInMenus, false);
 #endif
 
-    QString version = UBVERSION;
-    if(version.endsWith("."))
-        version = version.left(version.length()-1);
-    setApplicationVersion(version);
+    // WistOpenboard fork: use fork release version (e.g. 2026.19)
+    setApplicationVersion(wistVersion());
 
     QStringList args = arguments();
 

@@ -61,6 +61,9 @@ UBMainWindow::UBMainWindow(QWidget *parent, Qt::WindowFlags flags)
 {
     Ui::MainWindow::setupUi(this);
 
+    // WistOpenboard fork: window title bar displays fork name and release version (e.g. "WistOpenboard 2026.19")
+    setWindowTitle(UBApplication::appDisplayName());
+
     mpDownloadWidget = new UBDownloadWidget();
     mpDownloadWidget->setWindowModality(Qt::ApplicationModal);
 

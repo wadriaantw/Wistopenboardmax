@@ -33,9 +33,9 @@ BEGIN
 
         BEGIN
 
-            VALUE "CompanyName",      "Open Education Foudation\000"
+            VALUE "CompanyName",      "WistOpenboard\000"
 
-            VALUE "FileDescription",  "OpenBoard\000"
+            VALUE "FileDescription",  "WistOpenboard\000"
 
             VALUE "FileVersion",      UBVERSION
 
@@ -43,9 +43,9 @@ BEGIN
 
             VALUE "OriginalFilename", "OpenBoard.exe\000"
 
-            VALUE "ProductName",      "OpenBoard\000"
+            VALUE "ProductName",      "WistOpenboard\000"
 
-            VALUE "ProductVersion",   UBVERSION
+            VALUE "ProductVersion",   "2026.19\000"
 
         END
 

@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>OpenBoard</string>
+   <string>WistOpenboard 2026.19</string>
   </property>
   <property name="windowIcon">
    <iconset resource="../OpenBoard.qrc">
@@ -745,10 +745,10 @@
      <normaloff>:/images/toolbar/menu.png</normaloff>:/images/toolbar/menu.png</iconset>
    </property>
    <property name="text">
-    <string>OpenBoard</string>
+    <string>WistOpenboard</string>
    </property>
    <property name="toolTip">
-    <string>OpenBoard</string>
+    <string>WistOpenboard</string>
    </property>
    <property name="font">
     <font>
@@ -1907,12 +1907,12 @@
     <iconset resource="../OpenBoard.qrc">
      <normaloff>:/images/toolbar/hide.png</normaloff>:/images/toolbar/hide.png</iconset>
    </property>
-   <property name="text">
-    <string>Hide OpenBoard</string>
-   </property>
-   <property name="toolTip">
-    <string>Hide OpenBoard Application</string>
-   </property>
+    <property name="text">
+     <string>Hide WistOpenboard</string>
+    </property>
+    <property name="toolTip">
+     <string>Hide WistOpenboard Application</string>
+    </property>
    <property name="shortcut">
     <string>Ctrl+H</string>
    </property>

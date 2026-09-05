@@ -37,6 +37,15 @@
 
 #include "singleapplication/singleapplication.h"
 
+// WistOpenboard fork: application branding and release version
+#ifndef WIST_APP_NAME
+#define WIST_APP_NAME "WistOpenboard"
+#endif
+
+#ifndef WIST_APP_VERSION
+#define WIST_APP_VERSION "2026.19"
+#endif
+
 namespace Ui
 {
     class MainWindow;
@@ -77,6 +86,11 @@ class UBApplication : public SingleApplication
         static UBDocumentController* documentController;
 
         static UBMainWindow* mainWindow;
+
+        // WistOpenboard fork: branding and display title helpers
+        static QString wistAppName() { return QString(WIST_APP_NAME); }
+        static QString wistVersion() { return QString(WIST_APP_VERSION); }
+        static QString appDisplayName() { return QString("%1 %2").arg(WIST_APP_NAME, WIST_APP_VERSION); }
 
         static bool isClosing;
 
